@@ -7,6 +7,10 @@ from typing import Optional
 class AnalyzeProposalRequest(BaseModel):
     proposal_text: str
     similar_projects: list[dict] = []
+    max_sim_pct: float = 0.0
+    risk_level: str = "Bajo"
+    project_name: str = "NUEVA_PROPUESTA"
+    top_project_name: str = "Ninguno"
 
 
 # ─── session/start ──────────────────────────────────────────────────────────

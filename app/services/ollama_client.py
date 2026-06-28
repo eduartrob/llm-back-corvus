@@ -41,18 +41,21 @@ class OllamaClient:
         Usado por analyze-proposal (respuesta JSON completa).
         """
         async with _semaphore:
-            full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
             try:
+                payload = {
+                    "model": self.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "format": "json",
+                    "options": {"temperature": 0.2},
+                }
+                if system_prompt:
+                    payload["system"] = system_prompt
+
                 response = await asyncio.to_thread(
                     requests.post,
                     f"{self.host}/api/generate",
-                    json={
-                        "model": self.model,
-                        "prompt": full_prompt,
-                        "stream": False,
-                        "format": "json",
-                        "options": {"temperature": 0.2},
-                    },
+                    json=payload,
                     timeout=900,
                 )
                 response.raise_for_status()
