@@ -137,6 +137,36 @@ Estructura JSON:
             }
         }
 
+def build_ollama_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> tuple[str, str]:
+    system_prompt = f"""Eres un estricto evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
+TU ÚNICA TAREA es redactar un DICTAMEN COMPLETO sobre la nueva propuesta.
+
+REGLAS ESTRICTAS DE EVALUACIÓN:
+1. COLISIÓN: El sistema ya calculó matemáticamente que el riesgo de colisión es: {risk_level.upper()} (Similitud: {max_sim_pct}%). Justifica detalladamente en 'explanation' por qué el enfoque es distinto (o similar) al proyecto '{top_project_name}'.
+2. RECOMENDACIONES: Genera exactamente 4 recomendaciones técnicas sobre cómo mejorar.
+3. CALIFICACIONES: Las métricas deben ser números reales (0 a 100) basados en tu evaluación real. NO uses los textos de ejemplo de la plantilla.
+
+INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
+Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. Responde ÚNICAMENTE con esta estructura exacta, reemplazando los valores en corchetes angulares por tus valores reales:
+{{
+  "innovation_index": {{ "score": <0-100>, "label": "<Excepcional|Muy Bueno|Aceptable|Tradicional>" }},
+  "quality_metrics": {{ "academic_rigor": <0-100>, "technical_relevance": <0-100>, "structural_clarity": <0-100> }},
+  "semantic_collision_risk": {{ "alert_type": "<Alerta Roja|Alerta Amarilla|Falsa Alarma>", "explanation": "<análisis detallado>" }},
+  "recommendations": [{{ "icon": "<code|lock|fact_check|architecture|library_books>", "title": "<título>", "description": "<descripción>" }}],
+  "verdict": "<resumen del dictamen>",
+  "approved": <true|false>
+}}"""
+
+    user_prompt = f"""=== PROYECTO A EVALUAR: "{project_name}" ===
+{proposal_text}
+=== FIN DE "{project_name}" ===
+
+=== HISTORIAL (SOLO LECTURA PARA DETECTAR PLAGIO, NO EVALUAR) ===
+{context_text}
+=== FIN DEL HISTORIAL ===
+"""
+    return system_prompt, user_prompt
+
 @router.post("/analyze-proposal")
 async def analyze_proposal(body: AnalyzeProposalRequest):
     
@@ -150,7 +180,7 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
             f"Contenido: {proj.get('content', '')}\n"
         )
 
-    system_prompt, user_prompt = build_groq_analysis_prompt(
+    groq_system, groq_user = build_groq_analysis_prompt(
         proposal_text=body.proposal_text,
         context_text=context_text,
         project_name=body.project_name,
@@ -163,7 +193,7 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
         from app.api.groq_client import analyze_with_groq
         try:
             logger.info("[analyze-proposal] Intentando usar GroqCloud...")
-            result = analyze_with_groq(system_prompt, user_prompt)
+            result = analyze_with_groq(groq_system, groq_user)
             return result
         except Exception as e:
             logger.warning(f"[analyze-proposal] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
@@ -172,10 +202,19 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
     if not ollama_client.check_health():
         raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
 
+    ollama_system, ollama_user = build_ollama_analysis_prompt(
+        proposal_text=body.proposal_text,
+        context_text=context_text,
+        project_name=body.project_name,
+        top_project_name=body.top_project_name,
+        max_sim_pct=body.max_sim_pct,
+        risk_level=body.risk_level,
+    )
+
     try:
         raw_response = await ollama_client.generate(
-            prompt=user_prompt,
-            system_prompt=system_prompt
+            prompt=ollama_user,
+            system_prompt=ollama_system
         )
         
         cleaned_response = raw_response.strip()
