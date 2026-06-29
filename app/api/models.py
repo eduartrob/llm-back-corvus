@@ -1,8 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 
-
-# ─── analyze-proposal ───────────────────────────────────────────────────────
+-# analyzeproposal
 
 class AnalyzeProposalRequest(BaseModel):
     proposal_text: str
@@ -12,14 +11,12 @@ class AnalyzeProposalRequest(BaseModel):
     project_name: str = "NUEVA_PROPUESTA"
     top_project_name: str = "Ninguno"
 
-
-# ─── session/start ──────────────────────────────────────────────────────────
+-# sessionstart
 
 class StartSessionRequest(BaseModel):
     user_id: str
     proposal_summary: str
-    analysis_result: dict  # JSON completo de analyze-proposal
-
+    analysis_result: dict
 
 class StartSessionResponse(BaseModel):
     session_id: str
@@ -27,13 +24,11 @@ class StartSessionResponse(BaseModel):
     ai_opening_message: str
     quota: Optional[dict] = None
 
-
-# ─── session/message ────────────────────────────────────────────────────────
+-# sessionmessage
 
 class SessionMessageRequest(BaseModel):
     session_id: str
     user_message: str
-
 
 class SessionMessageResponse(BaseModel):
     ai_message: str

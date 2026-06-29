@@ -5,20 +5,12 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Semáforo para limitar concurrencia a Ollama (evita saturar la CPU del VPS)
 _semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_REQUESTS)
 
-# Endpoints de ADMINISTRACIÓN que nunca se deben exponer hacia afuera
 _BLOCKED_ENDPOINTS = {"/api/delete", "/api/pull", "/api/push", "/api/copy", "/api/create", "/api/blobs"}
 
-
 class OllamaClient:
-    """
-    Proxy seguro hacia Ollama.
-    - Solo permite el modelo configurado en ALLOWED_MODEL.
-    - Solo usa /api/generate y /api/chat (no endpoints de gestión).
-    - Limita las peticiones simultáneas con un semáforo.
-    """
+    
 
     def __init__(self):
         self.host = settings.OLLAMA_HOST
@@ -36,10 +28,7 @@ class OllamaClient:
             raise ValueError(f"Modelo '{model}' no permitido. Solo se permite '{self.model}'.")
 
     async def generate(self, prompt: str, system_prompt: str = "") -> str:
-        """
-        Genera una respuesta en modo JSON estructurado.
-        Usado por analyze-proposal (respuesta JSON completa).
-        """
+        
         async with _semaphore:
             try:
                 payload = {
@@ -66,11 +55,7 @@ class OllamaClient:
                 raise
 
     async def chat(self, messages: list[dict], temperature: float = 0.7) -> str:
-        """
-        Continúa una conversación multi-turno.
-        Usado por session/message (modo Defensa o modo Rechazo).
-        messages: [{"role": "system"|"user"|"assistant", "content": "..."}]
-        """
+        
         async with _semaphore:
             try:
                 response = await asyncio.to_thread(
@@ -90,6 +75,5 @@ class OllamaClient:
             except Exception as e:
                 logger.error(f"[OllamaClient] Error en chat: {e}")
                 raise
-
 
 ollama_client = OllamaClient()

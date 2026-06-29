@@ -7,25 +7,11 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# TTL en segundos: las sesiones inactivas se limpian tras 30 minutos
 SESSION_TTL_SECONDS = 30 * 60
 
-DEFENSE_SYSTEM_PROMPT = """Eres un riguroso comité evaluador universitario llamado "Corvus Evaluator".
-Tu rol es hacer de abogado del diablo para un proyecto que YA FUE APROBADO.
-Debes cuestionar de forma inteligente y constructiva los puntos débiles del proyecto.
-Hazte preguntas como: ¿Puede venderse al mercado? ¿Tiene viabilidad técnica real? ¿Cómo se diferencia de la competencia?
-Cuando el alumno responda, analiza su respuesta y sigue cuestionando los puntos no resueltos.
-Si el alumno da buenas respuestas, reconócelo brevemente y sigue con el siguiente punto débil.
-Responde siempre en español. Sé conciso (máximo 3 párrafos por respuesta).
-NO repitas preguntas que ya fueron respondidas satisfactoriamente."""
+DEFENSE_SYSTEM_PROMPT = 
 
-REJECTION_SYSTEM_PROMPT = """Eres un asesor académico constructivo llamado "Corvus Advisor".
-El proyecto del alumno fue RECHAZADO. Tu rol es:
-1. Explicar con claridad y empatía por qué fue rechazado (usando los datos del análisis).
-2. Responder las preguntas del alumno sobre cómo mejorar su propuesta.
-3. Sugerir cambios concretos y accionables.
-Responde siempre en español. Sé empático pero directo. Máximo 3 párrafos por respuesta."""
-
+REJECTION_SYSTEM_PROMPT = 
 
 class LlmSession:
     def __init__(
@@ -41,7 +27,7 @@ class LlmSession:
         self.mode = mode
         self.analysis_result = analysis_result
         self.proposal_summary = proposal_summary
-        self.messages: list[dict] = []  # Historial Ollama [{role, content}]
+        self.messages: list[dict] = []
         self.created_at = datetime.utcnow().isoformat()
         self.last_activity = time.time()
 
@@ -68,11 +54,8 @@ class LlmSession:
     def is_expired(self) -> bool:
         return (time.time() - self.last_activity) > SESSION_TTL_SECONDS
 
-
 class SessionStore:
-    """
-    Almacén de sesiones en RAM con limpieza automática por TTL.
-    """
+    
 
     def __init__(self):
         self._sessions: dict[str, LlmSession] = {}
@@ -111,7 +94,7 @@ class SessionStore:
     def _start_cleanup_thread(self):
         def cleanup():
             while True:
-                time.sleep(300)  # Limpiar cada 5 minutos
+                time.sleep(300)
                 expired = []
                 with self._lock:
                     for sid, s in self._sessions.items():
@@ -124,6 +107,5 @@ class SessionStore:
 
         t = threading.Thread(target=cleanup, daemon=True)
         t.start()
-
 
 session_store = SessionStore()

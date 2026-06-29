@@ -4,21 +4,14 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-
 class QuotaClient:
-    """
-    Consulta el microservicio de autenticación para verificar
-    cuántas sesiones LLM ha usado un usuario.
-    """
+    
 
     def __init__(self):
         self.auth_url = settings.AUTH_SERVICE_URL
 
     def get_quota(self, user_id: str) -> dict:
-        """
-        Retorna: { sessions_used: int, limit: int, unlimited: bool, can_create: bool }
-        Si UNLIMITED_SESSIONS=True, retorna siempre can_create=True sin consultar la DB.
-        """
+        
         if settings.UNLIMITED_SESSIONS:
             return {
                 "sessions_used": 0,
@@ -50,10 +43,7 @@ class QuotaClient:
             return {"sessions_used": 0, "limit": settings.FREE_SESSION_LIMIT, "unlimited": False, "can_create": False}
 
     def register_session(self, user_id: str, session_data: dict) -> bool:
-        """
-        Registra una nueva sesión LLM en la DB del auth service.
-        Si UNLIMITED_SESSIONS=True, no registra (modo testing sin datos de cuota).
-        """
+        
         if settings.UNLIMITED_SESSIONS:
             return True
         try:
@@ -66,6 +56,5 @@ class QuotaClient:
         except Exception as e:
             logger.error(f"[QuotaClient] Error registrando sesión: {e}")
             return False
-
 
 quota_client = QuotaClient()
