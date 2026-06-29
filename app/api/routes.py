@@ -33,14 +33,27 @@ Existe un riesgo de colisión de {risk_level} (Similitud: {max_sim_pct}%).
 Proyecto más similar: "{top_project_name}".
 Contexto similar: {context_text}
 
-Tu tarea es evaluar el nivel académico de la propuesta y emitir un veredicto (Aprobado, Rechazado, Requiere Cambios).
+Tu tarea es evaluar exhaustivamente el nivel académico, la innovación y viabilidad técnica de la propuesta.
 Debes devolver un JSON con la siguiente estructura exacta:
 {{
-    "academic_alignment": 85,
-    "veredicto": "Aprobado",
-    "secciones_faltantes": ["Metodología"],
-    "secciones_opcionales": ["IoT", "Edge Computing"],
-    "feedback": "El proyecto es sólido pero requiere detallar la metodología."
+    "innovation_index": {{"score": 85, "label": "Muy Bueno"}},
+    "quality_metrics": {{
+        "academic_rigor": 85,
+        "technical_relevance": 90,
+        "structural_clarity": 80
+    }},
+    "semantic_collision_risk": {{
+        "alert_type": "{risk_level}",
+        "explanation": "Breve explicación de la similitud con proyectos pasados."
+    }},
+    "verdict": "Aprobado",
+    "recommendations": [
+        {{
+            "icon": "tips_and_updates",
+            "title": "Sugerencia técnica",
+            "description": "Detalle de la sugerencia."
+        }}
+    ]
 }}
 """
 
