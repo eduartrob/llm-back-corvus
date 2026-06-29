@@ -26,7 +26,7 @@ def analyze_with_groq(prompt: str) -> dict:
             ],
             model="llama-3.3-70b-versatile",
             response_format={"type": "json_object"},
-            timeout=2.0
+            timeout=30.0
         )
 
         response_text = chat_completion.choices[0].message.content

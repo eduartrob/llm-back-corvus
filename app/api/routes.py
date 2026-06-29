@@ -26,34 +26,66 @@ class BlueOceanRequest(BaseModel):
 # prompt de analisis de propuesta reutilizado del clustering service
 
 def build_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> str:
-    return f"""Eres un comité evaluador estricto. Revisa esta propuesta: "{project_name}".
-Texto de la propuesta: {proposal_text}
+    return f"""Eres un evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
 
-Existe un riesgo de colisión de {risk_level} (Similitud: {max_sim_pct}%).
-Proyecto más similar: "{top_project_name}".
-Contexto similar: {context_text}
+=== TU ÚNICA TAREA ===
+Redactar un DICTAMEN COMPLETO sobre el proyecto "{project_name}".
+TODAS tus métricas (innovation_index, quality_metrics, recommendations, verdict) deben referirse EXCLUSIVAMENTE a "{project_name}".
+PROHIBIDO dar recomendaciones sobre los proyectos del historial. Esos proyectos son SOLO para detectar plagio.
 
-Tu tarea es evaluar exhaustivamente el nivel académico, la innovación y viabilidad técnica de la propuesta.
-Debes devolver un JSON con la siguiente estructura exacta:
+=== PROYECTO A EVALUAR: "{project_name}" ===
+{proposal_text}
+=== FIN DE "{project_name}" ===
+
+=== HISTORIAL (SOLO LECTURA PARA DETECTAR PLAGIO, NO EVALUAR) ===
+{context_text}
+=== FIN DEL HISTORIAL ===
+
+=== REGLAS DE COLISIÓN ===
+El sistema (Python) ya calculó matemáticamente que el riesgo de colisión es: {risk_level.upper()} (Similitud máxima: {max_sim_pct}%).
+Tu trabajo es escribir la "explanation" justificando POR QUÉ el sistema dio este riesgo.
+DEBES mencionar explícitamente el proyecto '{top_project_name}'. Además, DEBES extraer y escribir LITERALMENTE al menos 2 conceptos, tecnologías o palabras clave exactas que ambos proyectos tienen en común para justificar ese {max_sim_pct}%.
+- Si el riesgo es ALTO, enumera qué partes son idénticas al historial y por qué parece plagio.
+- Si el riesgo es MEDIO o BAJO, escribe exactamente qué conceptos comparten con '{top_project_name}' pero destaca por qué "{project_name}" es diferente y original.
+
+RECUERDA ANTES DE ESCRIBIR EL JSON: ¿Tus recomendaciones están dirigidas al autor de "{project_name}"? Si no, corrígelas.
+
+INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
+Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido, sin ningún texto Markdown ni comentarios fuera de él. El JSON llenará un Dashboard UI.
+Respeta EXACTAMENTE esta estructura y sigue las reglas para cada campo:
 {{
-    "innovation_index": {{"score": 85, "label": "Muy Bueno"}},
-    "quality_metrics": {{
-        "academic_rigor": 85,
-        "technical_relevance": 90,
-        "structural_clarity": 80
+  "innovation_index": {{
+    "score": <número 0-100>,
+    "label": "<Usa exactamente una de estas: Excepcional | Muy Bueno | Aceptable | Tradicional>"
+  }},
+  "quality_metrics": {{
+    "academic_rigor": <número 0-100 evaluando citas y referencias>,
+    "technical_relevance": <número 0-100 evaluando la modernidad de la tecnología propuesta>,
+    "structural_clarity": <número 0-100 evaluando la redacción y organización>
+  }},
+  "semantic_collision_risk": {{
+    "alert_type": "<Alerta Roja | Alerta Amarilla | Falsa Alarma>",
+    "explanation": "<Redacta aquí tu explicación detallada. OBLIGATORIO: Menciona explícitamente a '{top_project_name}' y escribe 2 tecnologías o conceptos exactos que comparten.>"
+  }},
+  "recommendations": [
+    {{
+      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
+      "title": "<Redacta un título corto y útil para tu primera recomendación>",
+      "description": "<Redacta aquí la instrucción detallada para el alumno>"
     }},
-    "semantic_collision_risk": {{
-        "alert_type": "{risk_level}",
-        "explanation": "Breve explicación de la similitud con proyectos pasados."
+    {{
+      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
+      "title": "<Redacta un título corto y útil para tu segunda recomendación>",
+      "description": "<Redacta aquí la instrucción detallada para el alumno>"
     }},
-    "verdict": "Aprobado",
-    "recommendations": [
-        {{
-            "icon": "tips_and_updates",
-            "title": "Sugerencia técnica",
-            "description": "Detalle de la sugerencia."
-        }}
-    ]
+    {{
+      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
+      "title": "<Redacta un título corto y útil para tu tercera recomendación>",
+      "description": "<Redacta aquí la instrucción detallada para el alumno>"
+    }}
+  ],
+  "verdict": "<Breve resumen del dictamen>",
+  "approved": <booleano true o false>
 }}
 """
 
