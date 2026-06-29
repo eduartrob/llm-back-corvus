@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 # Usará automáticamente la variable de entorno GROQ_API_KEY
 client = Groq()
 
-def analyze_with_groq(prompt: str) -> dict:
+def analyze_with_groq(system_prompt: str, user_prompt: str) -> dict:
     try:
         logger.info("[GroqClient] Iniciando análisis con llama-3.3-70b-versatile...")
         # Timeout de 2 segundos según lo solicitado (Groq es rápido, 2s para failover rápido)
@@ -17,7 +17,11 @@ def analyze_with_groq(prompt: str) -> dict:
             messages=[
                 {
                     "role": "system",
-                    "content": prompt
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": user_prompt
                 }
             ],
             model="llama-3.3-70b-versatile",

@@ -44,21 +44,13 @@ Responde ÚNICAMENTE con un JSON válido sin markdown ni comentarios con esta es
   "approved": <true|false>
 }"""
 
-def build_groq_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> str:
-    return f"""Eres un estricto evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
+def build_groq_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> tuple[str, str]:
+    system_prompt = f"""Eres un estricto evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
 
 === TU ÚNICA TAREA ===
-Redactar un DICTAMEN COMPLETO sobre el proyecto "{project_name}".
-TODAS tus métricas (innovation_index, quality_metrics, recommendations, verdict) deben referirse EXCLUSIVAMENTE a "{project_name}".
+Redactar un DICTAMEN COMPLETO sobre el proyecto.
+TODAS tus métricas deben referirse EXCLUSIVAMENTE al proyecto evaluado.
 PROHIBIDO dar recomendaciones sobre los proyectos del historial. Esos proyectos son SOLO para detectar plagio.
-
-=== PROYECTO A EVALUAR: "{project_name}" ===
-{proposal_text}
-=== FIN DE "{project_name}" ===
-
-=== HISTORIAL (SOLO LECTURA PARA DETECTAR PLAGIO, NO EVALUAR) ===
-{context_text}
-=== FIN DEL HISTORIAL ===
 
 === REGLAS ESTRICTAS DE EVALUACIÓN ===
 1. COLISIÓN: El sistema ya calculó matemáticamente que el riesgo de colisión es: {risk_level.upper()} (Similitud: {max_sim_pct}%). En el campo 'explanation' de 'semantic_collision_risk', DEBES justificar detalladamente por qué el enfoque es distinto (o similar) al proyecto '{top_project_name}'.
@@ -68,32 +60,25 @@ PROHIBIDO dar recomendaciones sobre los proyectos del historial. Esos proyectos 
 INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
 Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. No devuelvas ningún texto de relleno ni uses "textos de ejemplo", DEBES LLENAR el JSON con tu propio análisis real y profundo.
 
-ESTRUCTURA EXACTA A DEVOLVER (REEMPLAZA LOS VALORES CON TU ANÁLISIS REAL):
-{{
-  "innovation_index": {{
-    "score": 0,
-    "label": ""
-  }},
-  "quality_metrics": {{
-    "academic_rigor": 0,
-    "technical_relevance": 0,
-    "structural_clarity": 0
-  }},
-  "semantic_collision_risk": {{
-    "alert_type": "",
-    "explanation": ""
-  }},
-  "recommendations": [
-    {{
-      "icon": "",
-      "title": "",
-      "description": ""
-    }}
-  ],
-  "verdict": "",
-  "approved": true
-}}
+El JSON debe tener EXACTAMENTE estas claves y tipos de datos:
+- "innovation_index": objeto con "score" (número del 0 al 100) y "label" (string).
+- "quality_metrics": objeto con "academic_rigor" (número), "technical_relevance" (número) y "structural_clarity" (número).
+- "semantic_collision_risk": objeto con "alert_type" (string) y "explanation" (string).
+- "recommendations": arreglo de 4 objetos, donde cada uno tiene "icon" (string: elige entre 'code', 'lock', 'fact_check', 'architecture' o 'library_books'), "title" (string) y "description" (string largo).
+- "verdict": string (un breve resumen).
+- "approved": booleano (true o false).
 """
+
+    user_prompt = f"""=== PROYECTO A EVALUAR: "{project_name}" ===
+{proposal_text}
+=== FIN DE "{project_name}" ===
+
+=== HISTORIAL (SOLO LECTURA PARA DETECTAR PLAGIO, NO EVALUAR) ===
+{context_text}
+=== FIN DEL HISTORIAL ===
+"""
+    
+    return system_prompt, user_prompt
 
 @router.get("/health")
 async def health():
@@ -166,7 +151,7 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
         )
 
     if body.provider == "groq":
-        groq_prompt = build_groq_analysis_prompt(
+        system_prompt, user_prompt = build_groq_analysis_prompt(
             proposal_text=body.proposal_text,
             context_text=context_text,
             project_name=body.project_name,
@@ -177,7 +162,7 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
         from app.api.groq_client import analyze_with_groq
         try:
             logger.info("[analyze-proposal] Intentando usar GroqCloud...")
-            result = analyze_with_groq(groq_prompt)
+            result = analyze_with_groq(system_prompt, user_prompt)
             return result
         except Exception as e:
             logger.warning(f"[analyze-proposal] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
