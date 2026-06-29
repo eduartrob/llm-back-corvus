@@ -27,9 +27,48 @@ class BlueOceanRequest(BaseModel):
 
 def build_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str, provider: str = "ollama") -> str:
     if provider == "groq":
-        recom_text = "IMPORTANTE: Genera MÍNIMO 3 recomendaciones en el arreglo 'recommendations', pero IDEALMENTE 4 o 5 para dar un análisis más profundo."
+        recom_text = "IMPORTANTE: Genera 4 o 5 recomendaciones en el arreglo 'recommendations'."
+        recom_json = """  "recommendations": [
+    {
+      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
+      "title": "<Redacta un título corto y útil>",
+      "description": "<Redacta aquí la instrucción detallada para el alumno>"
+    },
+    {
+      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
+      "title": "<Redacta un título corto y útil>",
+      "description": "<Redacta aquí la instrucción detallada para el alumno>"
+    },
+    {
+      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
+      "title": "<Redacta un título corto y útil>",
+      "description": "<Redacta aquí la instrucción detallada para el alumno>"
+    },
+    {
+      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
+      "title": "<Redacta un título corto y útil>",
+      "description": "<Redacta aquí la instrucción detallada para el alumno>"
+    }
+  ],"""
     else:
-        recom_text = "IMPORTANTE: Genera EXACTAMENTE 3 recomendaciones en el arreglo 'recommendations', ni más ni menos, para optimizar el tiempo de respuesta."
+        recom_text = "IMPORTANTE: Genera EXACTAMENTE 3 recomendaciones en el arreglo 'recommendations', ni más ni menos."
+        recom_json = """  "recommendations": [
+    {
+      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
+      "title": "<Redacta un título corto y útil>",
+      "description": "<Redacta aquí la instrucción detallada para el alumno>"
+    },
+    {
+      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
+      "title": "<Redacta un título corto y útil>",
+      "description": "<Redacta aquí la instrucción detallada para el alumno>"
+    },
+    {
+      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
+      "title": "<Redacta un título corto y útil>",
+      "description": "<Redacta aquí la instrucción detallada para el alumno>"
+    }
+  ],"""
 
     return f"""Eres un evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
 
@@ -49,14 +88,11 @@ PROHIBIDO dar recomendaciones sobre los proyectos del historial. Esos proyectos 
 === REGLAS DE COLISIÓN ===
 El sistema (Python) ya calculó matemáticamente que el riesgo de colisión es: {risk_level.upper()} (Similitud máxima: {max_sim_pct}%).
 Tu trabajo es escribir la "explanation" justificando POR QUÉ el sistema dio este riesgo.
-DEBES mencionar explícitamente el proyecto '{top_project_name}'. Además, DEBES extraer y escribir LITERALMENTE al menos 2 conceptos, tecnologías o palabras clave exactas que ambos proyectos tienen en común para justificar ese {max_sim_pct}%.
-- Si el riesgo es ALTO, enumera qué partes son idénticas al historial y por qué parece plagio.
-- Si el riesgo es MEDIO o BAJO, escribe exactamente qué conceptos comparten con '{top_project_name}' pero destaca por qué "{project_name}" es diferente y original.
 
 RECUERDA ANTES DE ESCRIBIR EL JSON: ¿Tus recomendaciones están dirigidas al autor de "{project_name}"? Si no, corrígelas.
 
 INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
-Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido, sin ningún texto Markdown ni comentarios fuera de él. El JSON llenará un Dashboard UI.
+Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido, sin ningún texto Markdown ni comentarios fuera de él.
 {recom_text}
 Respeta EXACTAMENTE esta estructura y sigue las reglas para cada campo:
 {{
@@ -71,15 +107,9 @@ Respeta EXACTAMENTE esta estructura y sigue las reglas para cada campo:
   }},
   "semantic_collision_risk": {{
     "alert_type": "<Alerta Roja | Alerta Amarilla | Falsa Alarma>",
-    "explanation": "<Redacta una justificación DETALLADA (debes escribir 3 oraciones largas como mínimo). 1. Menciona explícitamente a '{top_project_name}'. 2. Extrae y lista 2 tecnologías o conceptos exactos que comparten. 3. Explica exhaustivamente por qué el enfoque es distinto.>"
+    "explanation": "Detalla estrictamente en varios renglones lo siguiente:\\n- Mención explícita a '{top_project_name}'\\n- Las 2 tecnologías exactas o conceptos clave que AMBOS comparten\\n- Por qué el enfoque o aplicación de "{project_name}" es distinto y mitiga el plagio.\\nNo seas breve. Explica a detalle."
   }},
-  "recommendations": [
-    {{
-      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil>",
-      "description": "<Redacta aquí la instrucción detallada para el alumno>"
-    }}
-  ],
+{recom_json}
   "verdict": "<Breve resumen del dictamen>",
   "approved": <booleano true o false>
 }}
