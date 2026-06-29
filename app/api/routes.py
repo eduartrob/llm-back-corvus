@@ -45,31 +45,7 @@ Responde ÚNICAMENTE con un JSON válido sin markdown ni comentarios con esta es
 }"""
 
 def build_groq_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> str:
-    recom_text = "IMPORTANTE: Genera 4 o 5 recomendaciones en el arreglo 'recommendations'."
-    recom_json = """  "recommendations": [
-    {
-      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil>",
-      "description": "<Redacta aquí la instrucción detallada para el alumno>"
-    },
-    {
-      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil>",
-      "description": "<Redacta aquí la instrucción detallada para el alumno>"
-    },
-    {
-      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil>",
-      "description": "<Redacta aquí la instrucción detallada para el alumno>"
-    },
-    {
-      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil>",
-      "description": "<Redacta aquí la instrucción detallada para el alumno>"
-    }
-  ],"""
-
-    return f"""Eres un evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
+    return f"""Eres un estricto evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
 
 === TU ÚNICA TAREA ===
 Redactar un DICTAMEN COMPLETO sobre el proyecto "{project_name}".
@@ -84,33 +60,53 @@ PROHIBIDO dar recomendaciones sobre los proyectos del historial. Esos proyectos 
 {context_text}
 === FIN DEL HISTORIAL ===
 
-=== REGLAS DE COLISIÓN ===
-El sistema (Python) ya calculó matemáticamente que el riesgo de colisión es: {risk_level.upper()} (Similitud máxima: {max_sim_pct}%).
-Tu trabajo es escribir la "explanation" justificando POR QUÉ el sistema dio este riesgo.
-
-RECUERDA ANTES DE ESCRIBIR EL JSON: ¿Tus recomendaciones están dirigidas al autor de "{project_name}"? Si no, corrígelas.
+=== REGLAS ESTRICTAS DE EVALUACIÓN ===
+1. COLISIÓN: El sistema ya calculó matemáticamente que el riesgo de colisión es: {risk_level.upper()} (Similitud: {max_sim_pct}%). En el campo 'explanation' de 'semantic_collision_risk', DEBES justificar detalladamente por qué el enfoque es distinto (o similar) al proyecto '{top_project_name}'.
+2. SECCIONES FALTANTES: Si al documento le faltan secciones clave (ej. no tiene objetivos claros, no tiene problemática, no tiene variables), DEBES castigar severamente las métricas de 'academic_rigor' y 'structural_clarity'.
+3. RECOMENDACIONES: Genera exactamente 4 recomendaciones técnicas. Si faltan secciones, la primera recomendación DEBE ser pedir que agreguen lo que falta.
 
 INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
-Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido, sin ningún texto Markdown ni comentarios fuera de él.
-{recom_text}
-Respeta EXACTAMENTE esta estructura y sigue las reglas para cada campo:
+Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. No devuelvas ningún texto de relleno ni uses "textos de ejemplo", usa tu propio análisis real y profundo.
+
+ESTRUCTURA EXACTA A DEVOLVER:
 {{
   "innovation_index": {{
-    "score": <número 0-100>,
-    "label": "<Usa exactamente una de estas: Excepcional | Muy Bueno | Aceptable | Tradicional>"
+    "score": 85,
+    "label": "Excepcional | Muy Bueno | Aceptable | Tradicional"
   }},
   "quality_metrics": {{
-    "academic_rigor": <número 0-100 evaluando citas y referencias>,
-    "technical_relevance": <número 0-100 evaluando la modernidad de la tecnología propuesta>,
-    "structural_clarity": <número 0-100 evaluando la redacción y organización>
+    "academic_rigor": 80,
+    "technical_relevance": 90,
+    "structural_clarity": 70
   }},
   "semantic_collision_risk": {{
-    "alert_type": "<Alerta Roja | Alerta Amarilla | Falsa Alarma>",
-    "explanation": "Detalla estrictamente en varios renglones lo siguiente:\\n- Mención explícita a '{top_project_name}'\\n- Por qué el enfoque o aplicación de "{project_name}" es distinto y mitiga el plagio.\\nNo seas breve. Explica a detalle."
+    "alert_type": "Alerta Roja | Alerta Amarilla | Falsa Alarma",
+    "explanation": "Aquí debes escribir tu explicación detallada real del análisis de plagio."
   }},
-{recom_json}
-  "verdict": "<Breve resumen del dictamen>",
-  "approved": <booleano true o false>
+  "recommendations": [
+    {{
+      "icon": "code",
+      "title": "Agrega la problemática",
+      "description": "Tu documento no menciona el contexto ni el planteamiento del problema. Debes agregarlo."
+    }},
+    {{
+      "icon": "fact_check",
+      "title": "Define las variables",
+      "description": "Otra sugerencia real basada en el documento evaluado."
+    }},
+    {{
+      "icon": "architecture",
+      "title": "Arquitectura de software",
+      "description": "Otra sugerencia real detallada."
+    }},
+    {{
+      "icon": "library_books",
+      "title": "Marco teórico",
+      "description": "Otra sugerencia real detallada."
+    }}
+  ],
+  "verdict": "Veredicto final resumido del proyecto evaluado.",
+  "approved": true
 }}
 """
 
