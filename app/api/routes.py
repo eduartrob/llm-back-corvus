@@ -150,15 +150,16 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
             f"Contenido: {proj.get('content', '')}\n"
         )
 
+    system_prompt, user_prompt = build_groq_analysis_prompt(
+        proposal_text=body.proposal_text,
+        context_text=context_text,
+        project_name=body.project_name,
+        top_project_name=body.top_project_name,
+        max_sim_pct=body.max_sim_pct,
+        risk_level=body.risk_level,
+    )
+
     if body.provider == "groq":
-        system_prompt, user_prompt = build_groq_analysis_prompt(
-            proposal_text=body.proposal_text,
-            context_text=context_text,
-            project_name=body.project_name,
-            top_project_name=body.top_project_name,
-            max_sim_pct=body.max_sim_pct,
-            risk_level=body.risk_level,
-        )
         from app.api.groq_client import analyze_with_groq
         try:
             logger.info("[analyze-proposal] Intentando usar GroqCloud...")
@@ -171,17 +172,19 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
     if not ollama_client.check_health():
         raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
 
-    ollama_prompt = (
-        f"--- NUEVA PROPUESTA ---\n{body.proposal_text}\n--- FIN PROPUESTA ---\n\n"
-        f"--- HISTORIAL SIMILARES (SOLO REFERENCIA) ---\n{context_text}\n--- FIN HISTORIAL ---"
-    )
-
     try:
         raw_response = await ollama_client.generate(
-            prompt=ollama_prompt,
-            system_prompt=ANALYSIS_SYSTEM_PROMPT
+            prompt=user_prompt,
+            system_prompt=system_prompt
         )
-        result = json.loads(raw_response)
+        
+        cleaned_response = raw_response.strip()
+        if cleaned_response.startswith("```json"):
+            cleaned_response = cleaned_response[7:]
+        if cleaned_response.endswith("```"):
+            cleaned_response = cleaned_response[:-3]
+            
+        result = json.loads(cleaned_response)
         return result
     except json.JSONDecodeError:
         logger.error(f"[analyze-proposal] Ollama no devolvió JSON válido: {raw_response}")
