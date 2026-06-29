@@ -106,7 +106,7 @@ Respeta EXACTAMENTE esta estructura y sigue las reglas para cada campo:
   }},
   "semantic_collision_risk": {{
     "alert_type": "<Alerta Roja | Alerta Amarilla | Falsa Alarma>",
-    "explanation": "Detalla estrictamente en varios renglones lo siguiente:\\n- Mención explícita a '{top_project_name}'\\n- Las 2 tecnologías exactas o conceptos clave que AMBOS comparten\\n- Por qué el enfoque o aplicación de "{project_name}" es distinto y mitiga el plagio.\\nNo seas breve. Explica a detalle."
+    "explanation": "Detalla estrictamente en varios renglones lo siguiente:\\n- Mención explícita a '{top_project_name}'\\n- Por qué el enfoque o aplicación de "{project_name}" es distinto y mitiga el plagio.\\nNo seas breve. Explica a detalle."
   }},
 {recom_json}
   "verdict": "<Breve resumen del dictamen>",
