@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 
--# analyzeproposal
+# analyzeproposal
 
 class AnalyzeProposalRequest(BaseModel):
     proposal_text: str
@@ -12,7 +12,7 @@ class AnalyzeProposalRequest(BaseModel):
     top_project_name: str = "Ninguno"
     provider: str = "ollama"
 
--# sessionstart
+# sessionstart
 
 class StartSessionRequest(BaseModel):
     user_id: str
@@ -25,7 +25,7 @@ class StartSessionResponse(BaseModel):
     ai_opening_message: str
     quota: Optional[dict] = None
 
--# sessionmessage
+# sessionmessage
 
 class SessionMessageRequest(BaseModel):
     session_id: str
