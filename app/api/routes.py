@@ -25,34 +25,33 @@ class BlueOceanRequest(BaseModel):
 
 # prompt de analisis de propuesta reutilizado del clustering service
 
-def build_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str, provider: str = "ollama") -> str:
-    if provider == "groq":
-        recom_text = "IMPORTANTE: Genera 4 o 5 recomendaciones en el arreglo 'recommendations'."
-        recom_json = """  "recommendations": [
+ANALYSIS_SYSTEM_PROMPT = """Eres un estricto comité evaluador de proyectos universitarios en AcadeRAG.
+Evalúa EXCLUSIVAMENTE la nueva propuesta. El historial es solo referencia para detectar plagio.
+
+REGLAS DE COLISIÓN:
+- Similitud > 50% con idea idéntica → Alerta Roja
+- Similitud 20-50% con diferenciadores → Falsa Alarma
+- Similitud 20-50% sin diferenciadores → Alerta Amarilla  
+- Similitud > 90% → Plagio (innovation_index: 0, approved: false)
+
+Responde ÚNICAMENTE con un JSON válido sin markdown ni comentarios con esta estructura exacta:
+{
+  "innovation_index": { "score": <0-100>, "label": "<Excepcional|Muy Bueno|Aceptable|Tradicional>" },
+  "quality_metrics": { "academic_rigor": <0-100>, "technical_relevance": <0-100>, "structural_clarity": <0-100> },
+  "semantic_collision_risk": { "alert_type": "<Alerta Roja|Alerta Amarilla|Falsa Alarma>", "explanation": "<análisis detallado>" },
+  "recommendations": [{ "icon": "<code|lock|fact_check|architecture|library_books>", "title": "<título>", "description": "<descripción>" }],
+  "verdict": "<resumen del dictamen>",
+  "approved": <true|false>
+}"""
+
+def build_groq_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> str:
+    recom_text = "IMPORTANTE: Genera 4 o 5 recomendaciones en el arreglo 'recommendations'."
+    recom_json = """  "recommendations": [
     {
       "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
       "title": "<Redacta un título corto y útil>",
       "description": "<Redacta aquí la instrucción detallada para el alumno>"
     },
-    {
-      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil>",
-      "description": "<Redacta aquí la instrucción detallada para el alumno>"
-    },
-    {
-      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil>",
-      "description": "<Redacta aquí la instrucción detallada para el alumno>"
-    },
-    {
-      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil>",
-      "description": "<Redacta aquí la instrucción detallada para el alumno>"
-    }
-  ],"""
-    else:
-        recom_text = "IMPORTANTE: Genera EXACTAMENTE 3 recomendaciones en el arreglo 'recommendations', ni más ni menos."
-        recom_json = """  "recommendations": [
     {
       "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
       "title": "<Redacta un título corto y útil>",
@@ -185,21 +184,19 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
             f"Contenido: {proj.get('content', '')}\n"
         )
 
-    prompt = build_analysis_prompt(
-        proposal_text=body.proposal_text,
-        context_text=context_text,
-        project_name=body.project_name,
-        top_project_name=body.top_project_name,
-        max_sim_pct=body.max_sim_pct,
-        risk_level=body.risk_level,
-        provider=body.provider,
-    )
-
     if body.provider == "groq":
+        groq_prompt = build_groq_analysis_prompt(
+            proposal_text=body.proposal_text,
+            context_text=context_text,
+            project_name=body.project_name,
+            top_project_name=body.top_project_name,
+            max_sim_pct=body.max_sim_pct,
+            risk_level=body.risk_level,
+        )
         from app.api.groq_client import analyze_with_groq
         try:
             logger.info("[analyze-proposal] Intentando usar GroqCloud...")
-            result = analyze_with_groq(prompt)
+            result = analyze_with_groq(groq_prompt)
             return result
         except Exception as e:
             logger.warning(f"[analyze-proposal] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
@@ -208,8 +205,16 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
     if not ollama_client.check_health():
         raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
 
+    ollama_prompt = (
+        f"--- NUEVA PROPUESTA ---\n{body.proposal_text}\n--- FIN PROPUESTA ---\n\n"
+        f"--- HISTORIAL SIMILARES (SOLO REFERENCIA) ---\n{context_text}\n--- FIN HISTORIAL ---"
+    )
+
     try:
-        raw_response = await ollama_client.generate(prompt=prompt)
+        raw_response = await ollama_client.generate(
+            prompt=ollama_prompt,
+            system_prompt=ANALYSIS_SYSTEM_PROMPT
+        )
         result = json.loads(raw_response)
         return result
     except json.JSONDecodeError:
