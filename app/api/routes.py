@@ -77,9 +77,6 @@ async def analyze_blue_ocean(body: BlueOceanRequest):
 @router.post("/analyze-proposal")
 async def analyze_proposal(body: AnalyzeProposalRequest):
     
-    if not ollama_client.check_health():
-        raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
-
     context_text = ""
     for i, proj in enumerate(body.similar_projects):
         sim_pct = proj.get("similarity_pct", 0)
@@ -98,6 +95,19 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
         max_sim_pct=body.max_sim_pct,
         risk_level=body.risk_level,
     )
+
+    if body.provider == "groq":
+        from app.api.groq_client import analyze_with_groq
+        try:
+            logger.info("[analyze-proposal] Intentando usar GroqCloud...")
+            result = analyze_with_groq(prompt)
+            return result
+        except Exception as e:
+            logger.warning(f"[analyze-proposal] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
+
+    # Flujo normal o fallback a Ollama
+    if not ollama_client.check_health():
+        raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
 
     try:
         raw_response = await ollama_client.generate(prompt=prompt)

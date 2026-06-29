@@ -10,6 +10,7 @@ class AnalyzeProposalRequest(BaseModel):
     risk_level: str = "Bajo"
     project_name: str = "NUEVA_PROPUESTA"
     top_project_name: str = "Ninguno"
+    provider: str = "ollama"
 
 -# sessionstart
 
