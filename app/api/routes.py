@@ -71,7 +71,7 @@ Respeta EXACTAMENTE esta estructura y sigue las reglas para cada campo:
   }},
   "semantic_collision_risk": {{
     "alert_type": "<Alerta Roja | Alerta Amarilla | Falsa Alarma>",
-    "explanation": "<Redacta aquí tu explicación detallada. OBLIGATORIO: Menciona explícitamente a '{top_project_name}' y escribe 2 tecnologías o conceptos exactos que comparten.>"
+    "explanation": "<Redacta una justificación DETALLADA (mínimo 3 oraciones). OBLIGATORIO: Menciona a '{top_project_name}'. OBLIGATORIO: Lista 2 conceptos/tecnologías que comparten. OBLIGATORIO: Explica claramente por qué el enfoque o aplicación es distinto.>"
   }},
   "recommendations": [
     {{
