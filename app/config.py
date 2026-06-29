@@ -9,7 +9,10 @@ class Settings(BaseSettings):
     AUTH_SERVICE_URL: str = "http://auth-service:3001"
     PORT: int = 3003
 
+    GROQ_API_KEY: str = ""
+    
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 settings = Settings()
