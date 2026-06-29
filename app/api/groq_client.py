@@ -17,10 +17,6 @@ def analyze_with_groq(prompt: str) -> dict:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a senior academic reviewer. Always respond in valid JSON format."
-                },
-                {
-                    "role": "user",
                     "content": prompt
                 }
             ],

@@ -71,22 +71,12 @@ Respeta EXACTAMENTE esta estructura y sigue las reglas para cada campo:
   }},
   "semantic_collision_risk": {{
     "alert_type": "<Alerta Roja | Alerta Amarilla | Falsa Alarma>",
-    "explanation": "<Redacta una justificación DETALLADA (mínimo 3 oraciones). OBLIGATORIO: Menciona a '{top_project_name}'. OBLIGATORIO: Lista 2 conceptos/tecnologías que comparten. OBLIGATORIO: Explica claramente por qué el enfoque o aplicación es distinto.>"
+    "explanation": "<Redacta una justificación DETALLADA (debes escribir 3 oraciones largas como mínimo). 1. Menciona explícitamente a '{top_project_name}'. 2. Extrae y lista 2 tecnologías o conceptos exactos que comparten. 3. Explica exhaustivamente por qué el enfoque es distinto.>"
   }},
   "recommendations": [
     {{
       "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil para tu primera recomendación>",
-      "description": "<Redacta aquí la instrucción detallada para el alumno>"
-    }},
-    {{
-      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil para tu segunda recomendación>",
-      "description": "<Redacta aquí la instrucción detallada para el alumno>"
-    }},
-    {{
-      "icon": "<elige uno: code, lock, fact_check, architecture, library_books>",
-      "title": "<Redacta un título corto y útil para tu tercera recomendación>",
+      "title": "<Redacta un título corto y útil>",
       "description": "<Redacta aquí la instrucción detallada para el alumno>"
     }}
   ],
