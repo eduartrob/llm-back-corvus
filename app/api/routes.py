@@ -23,11 +23,26 @@ class BlueOceanRequest(BaseModel):
     description: str
     category: str
 
--# prompt de analisis de propuesta reutilizado del clustering service
+# prompt de analisis de propuesta reutilizado del clustering service
 
 def build_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> str:
-    
-    return f
+    return f"""Eres un comité evaluador estricto. Revisa esta propuesta: "{project_name}".
+Texto de la propuesta: {proposal_text}
+
+Existe un riesgo de colisión de {risk_level} (Similitud: {max_sim_pct}%).
+Proyecto más similar: "{top_project_name}".
+Contexto similar: {context_text}
+
+Tu tarea es evaluar el nivel académico de la propuesta y emitir un veredicto (Aprobado, Rechazado, Requiere Cambios).
+Debes devolver un JSON con la siguiente estructura exacta:
+{{
+    "academic_alignment": 85,
+    "veredicto": "Aprobado",
+    "secciones_faltantes": ["Metodología"],
+    "secciones_opcionales": ["IoT", "Edge Computing"],
+    "feedback": "El proyecto es sólido pero requiere detallar la metodología."
+}}
+"""
 
 @router.get("/health")
 async def health():
@@ -45,7 +60,19 @@ async def analyze_blue_ocean(body: BlueOceanRequest):
     if not ollama_client.check_health():
         raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
 
-    prompt = f
+    prompt = f"""Analiza este nicho de océano azul (baja colisión semántica).
+Título: {body.title}
+Descripción: {body.description}
+Categoría: {body.category}
+
+Genera un JSON con tres recomendaciones de innovación, un posible dominio de aplicación, y tecnologías sugeridas.
+Estructura JSON:
+{{
+    "recomendaciones": ["rec1", "rec2", "rec3"],
+    "dominio_sugerido": "Salud Pública",
+    "tecnologias": ["NLP", "IoT"]
+}}
+"""
 
     try:
         raw_response = await ollama_client.generate(prompt=prompt)
