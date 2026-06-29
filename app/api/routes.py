@@ -83,6 +83,8 @@ Respeta EXACTAMENTE esta estructura y sigue las reglas para cada campo:
       "title": "<Redacta un título corto y útil para tu tercera recomendación>",
       "description": "<Redacta aquí la instrucción detallada para el alumno>"
     }}
+    // REGLA ESTRICTA: DEBES GENERAR UN MÍNIMO DE 3 RECOMENDACIONES. NUNCA MENOS DE 3.
+    // SI LO CONSIDERAS NECESARIO PARA MEJORAR EL PROYECTO, PUEDES GENERAR 4 O MÁS RECOMENDACIONES AQUÍ.
   ],
   "verdict": "<Breve resumen del dictamen>",
   "approved": <booleano true o false>
