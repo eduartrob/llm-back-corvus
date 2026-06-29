@@ -25,7 +25,12 @@ class BlueOceanRequest(BaseModel):
 
 # prompt de analisis de propuesta reutilizado del clustering service
 
-def build_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> str:
+def build_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str, provider: str = "ollama") -> str:
+    if provider == "groq":
+        recom_text = "IMPORTANTE: Genera MÍNIMO 3 recomendaciones en el arreglo 'recommendations', pero IDEALMENTE 4 o 5 para dar un análisis más profundo."
+    else:
+        recom_text = "IMPORTANTE: Genera EXACTAMENTE 3 recomendaciones en el arreglo 'recommendations', ni más ni menos, para optimizar el tiempo de respuesta."
+
     return f"""Eres un evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
 
 === TU ÚNICA TAREA ===
@@ -52,6 +57,7 @@ RECUERDA ANTES DE ESCRIBIR EL JSON: ¿Tus recomendaciones están dirigidas al au
 
 INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
 Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido, sin ningún texto Markdown ni comentarios fuera de él. El JSON llenará un Dashboard UI.
+{recom_text}
 Respeta EXACTAMENTE esta estructura y sigue las reglas para cada campo:
 {{
   "innovation_index": {{
@@ -83,8 +89,6 @@ Respeta EXACTAMENTE esta estructura y sigue las reglas para cada campo:
       "title": "<Redacta un título corto y útil para tu tercera recomendación>",
       "description": "<Redacta aquí la instrucción detallada para el alumno>"
     }}
-    // REGLA ESTRICTA: DEBES GENERAR UN MÍNIMO DE 3 RECOMENDACIONES. NUNCA MENOS DE 3.
-    // SI LO CONSIDERAS NECESARIO PARA MEJORAR EL PROYECTO, PUEDES GENERAR 4 O MÁS RECOMENDACIONES AQUÍ.
   ],
   "verdict": "<Breve resumen del dictamen>",
   "approved": <booleano true o false>
@@ -168,6 +172,7 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
         top_project_name=body.top_project_name,
         max_sim_pct=body.max_sim_pct,
         risk_level=body.risk_level,
+        provider=body.provider,
     )
 
     if body.provider == "groq":
