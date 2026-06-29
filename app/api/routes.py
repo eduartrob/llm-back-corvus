@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from fastapi import APIRouter, HTTPException, Header
 from typing import Optional
 from pydantic import BaseModel
@@ -14,6 +15,7 @@ from app.api.models import (
 from app.services.ollama_client import ollama_client
 from app.services.session_store import session_store
 from app.services.quota_client import quota_client
+from app.services.llm_queue import llm_queue
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -92,50 +94,68 @@ async def health():
 
 @router.post("/analyze-blue-ocean")
 async def analyze_blue_ocean(body: BlueOceanRequest):
-    
-    if not ollama_client.check_health():
-        raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
-
-    prompt = f"""Analiza este nicho de océano azul (baja colisión semántica).
+    async def _do_analysis():
+        system_prompt = "Eres un experto analista de datos e investigador académico. Genera un análisis JSON detallado para un tema de Océano Azul."
+        user_prompt = f"""Analiza este nicho de océano azul (baja colisión semántica).
 Título: {body.title}
 Descripción: {body.description}
 Categoría: {body.category}
 
-Genera un JSON con tres recomendaciones de innovación, un posible dominio de aplicación, y tecnologías sugeridas.
-Estructura JSON:
+Genera un JSON con tres sugerencias de innovación, un hallazgo principal, y métricas.
+Estructura JSON estricta (no uses backticks):
 {{
-    "recomendaciones": ["rec1", "rec2", "rec3"],
-    "dominio_sugerido": "Salud Pública",
-    "tecnologias": ["NLP", "IoT"]
-}}
-"""
-
-    try:
-        raw_response = await ollama_client.generate(prompt=prompt)
+    "hallazgo_principal": "string",
+    "sugerencias": [
+        {{"titulo": "string", "descripcion": "string", "tipo": "string"}}
+    ],
+    "metricas": {{
+        "originalidad": 85,
+        "disponibilidad_datos": 60,
+        "relevancia_academica": 90
+    }}
+}}"""
         
-        cleaned_response = raw_response.strip()
-        if cleaned_response.startswith("```json"):
-            cleaned_response = cleaned_response[7:]
-        if cleaned_response.endswith("```"):
-            cleaned_response = cleaned_response[:-3]
+        # Intentar con Groq primero
+        try:
+            from app.api.groq_client import analyze_with_groq
+            logger.info("[analyze-blue-ocean] Intentando usar GroqCloud...")
+            # analyze_with_groq es síncrona, ejecutamos en hilo
+            result = await asyncio.to_thread(analyze_with_groq, system_prompt, user_prompt)
+            return result
+        except Exception as e:
+            logger.warning(f"[analyze-blue-ocean] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
             
-        import json
-        return json.loads(cleaned_response)
-        
-    except Exception as e:
-        logger.error(f"[analyze-blue-ocean] Error: {e}")
-        return {
-            "hallazgo_principal": "Este tema presenta una oportunidad única por su baja colisión con los registros académicos actuales. Existe un vacío sustancial en la literatura local reciente.",
-            "sugerencias": [
-                {"titulo": "Investigación Cuantitativa", "descripcion": "Desarrollar métricas base.", "tipo": "Recomendado"},
-                {"titulo": "Estudio Exploratorio", "descripcion": "Evaluar viabilidad en campo.", "tipo": "Alternativo"}
-            ],
-            "metricas": {
-                "originalidad": 85,
-                "disponibilidad_datos": 60,
-                "relevancia_academica": 90
+        # Fallback a Ollama
+        if not ollama_client.check_health():
+            raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+
+        try:
+            raw_response = await ollama_client.generate(prompt=user_prompt, system_prompt=system_prompt)
+            
+            cleaned_response = raw_response.strip()
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]
+                
+            return json.loads(cleaned_response)
+        except Exception as e:
+            logger.error(f"[analyze-blue-ocean] Error con Ollama: {e}")
+            return {
+                "hallazgo_principal": "Este tema presenta una oportunidad única por su baja colisión con los registros académicos actuales.",
+                "sugerencias": [
+                    {"titulo": "Investigación Cuantitativa", "descripcion": "Desarrollar métricas base.", "tipo": "Recomendado"},
+                    {"titulo": "Estudio Exploratorio", "descripcion": "Evaluar viabilidad en campo.", "tipo": "Alternativo"}
+                ],
+                "metricas": {
+                    "originalidad": 85,
+                    "disponibilidad_datos": 60,
+                    "relevancia_academica": 90
+                }
             }
-        }
+
+    # Prioridad baja (10) para tareas de fondo
+    return await llm_queue.enqueue(10, _do_analysis())
 
 def build_ollama_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> tuple[str, str]:
     system_prompt = f"""Eres un estricto evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
@@ -169,68 +189,71 @@ Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. Responde �
 
 @router.post("/analyze-proposal")
 async def analyze_proposal(body: AnalyzeProposalRequest):
-    
-    context_text = ""
-    for i, proj in enumerate(body.similar_projects):
-        sim_pct = proj.get("similarity_pct", 0)
-        context_text += (
-            f"\n--- Proyecto Existente {i+1} ---\n"
-            f"Título: {proj.get('title', 'Desconocido')}\n"
-            f"Similitud Matemática (ChromaDB): {sim_pct:.1f}%\n"
-            f"Contenido: {proj.get('content', '')}\n"
+    async def _do_analysis():
+        context_text = ""
+        for i, proj in enumerate(body.similar_projects):
+            sim_pct = proj.get("similarity_pct", 0)
+            context_text += (
+                f"\n--- Proyecto Existente {i+1} ---\n"
+                f"Título: {proj.get('title', 'Desconocido')}\n"
+                f"Similitud Matemática (ChromaDB): {sim_pct:.1f}%\n"
+                f"Contenido: {proj.get('content', '')}\n"
+            )
+
+        groq_system, groq_user = build_groq_analysis_prompt(
+            proposal_text=body.proposal_text,
+            context_text=context_text,
+            project_name=body.project_name,
+            top_project_name=body.top_project_name,
+            max_sim_pct=body.max_sim_pct,
+            risk_level=body.risk_level,
         )
 
-    groq_system, groq_user = build_groq_analysis_prompt(
-        proposal_text=body.proposal_text,
-        context_text=context_text,
-        project_name=body.project_name,
-        top_project_name=body.top_project_name,
-        max_sim_pct=body.max_sim_pct,
-        risk_level=body.risk_level,
-    )
+        if body.provider == "groq":
+            from app.api.groq_client import analyze_with_groq
+            try:
+                logger.info("[analyze-proposal] Intentando usar GroqCloud...")
+                result = await asyncio.to_thread(analyze_with_groq, groq_system, groq_user)
+                return result
+            except Exception as e:
+                logger.warning(f"[analyze-proposal] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
 
-    if body.provider == "groq":
-        from app.api.groq_client import analyze_with_groq
+        # Flujo normal o fallback a Ollama
+        if not ollama_client.check_health():
+            raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+
+        ollama_system, ollama_user = build_ollama_analysis_prompt(
+            proposal_text=body.proposal_text,
+            context_text=context_text,
+            project_name=body.project_name,
+            top_project_name=body.top_project_name,
+            max_sim_pct=body.max_sim_pct,
+            risk_level=body.risk_level,
+        )
+
         try:
-            logger.info("[analyze-proposal] Intentando usar GroqCloud...")
-            result = analyze_with_groq(groq_system, groq_user)
-            return result
-        except Exception as e:
-            logger.warning(f"[analyze-proposal] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
-
-    # Flujo normal o fallback a Ollama
-    if not ollama_client.check_health():
-        raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
-
-    ollama_system, ollama_user = build_ollama_analysis_prompt(
-        proposal_text=body.proposal_text,
-        context_text=context_text,
-        project_name=body.project_name,
-        top_project_name=body.top_project_name,
-        max_sim_pct=body.max_sim_pct,
-        risk_level=body.risk_level,
-    )
-
-    try:
-        raw_response = await ollama_client.generate(
-            prompt=ollama_user,
-            system_prompt=ollama_system
-        )
-        
-        cleaned_response = raw_response.strip()
-        if cleaned_response.startswith("```json"):
-            cleaned_response = cleaned_response[7:]
-        if cleaned_response.endswith("```"):
-            cleaned_response = cleaned_response[:-3]
+            raw_response = await ollama_client.generate(
+                prompt=ollama_user,
+                system_prompt=ollama_system
+            )
             
-        result = json.loads(cleaned_response)
-        return result
-    except json.JSONDecodeError:
-        logger.error(f"[analyze-proposal] Ollama no devolvió JSON válido: {raw_response}")
-        raise HTTPException(status_code=500, detail="El modelo no devolvió un formato válido.")
-    except Exception as e:
-        logger.error(f"[analyze-proposal] Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+            cleaned_response = raw_response.strip()
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]
+                
+            result = json.loads(cleaned_response)
+            return result
+        except json.JSONDecodeError:
+            logger.error(f"[analyze-proposal] Ollama no devolvió JSON válido: {raw_response}")
+            raise HTTPException(status_code=500, detail="El modelo no devolvió un formato válido.")
+        except Exception as e:
+            logger.error(f"[analyze-proposal] Error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # Prioridad alta (1) para interacciones de usuario
+    return await llm_queue.enqueue(1, _do_analysis())
 
 @router.post("/session/start", response_model=StartSessionResponse)
 async def start_session(
@@ -291,12 +314,16 @@ async def start_session(
     messages = session.to_ollama_messages()
     messages.append({"role": "user", "content": opening_prompt})
 
-    try:
-        ai_opening = await ollama_client.chat(messages, temperature=0.6)
-        session.add_message("assistant", ai_opening)
-    except Exception as e:
-        logger.error(f"[session/start] Error generando apertura: {e}")
-        raise HTTPException(status_code=500, detail="Error generando el mensaje inicial de la IA.")
+    async def _do_start_chat():
+        try:
+            ai_opening = await ollama_client.chat(messages, temperature=0.6)
+            session.add_message("assistant", ai_opening)
+            return ai_opening
+        except Exception as e:
+            logger.error(f"[session/start] Error generando apertura: {e}")
+            raise HTTPException(status_code=500, detail="Error generando el mensaje inicial de la IA.")
+
+    ai_opening = await llm_queue.enqueue(1, _do_start_chat())
 
     return StartSessionResponse(
         session_id=session.session_id,
@@ -322,13 +349,17 @@ async def session_message(body: SessionMessageRequest):
 
     full_messages = session.to_ollama_messages()
 
-    try:
-        ai_response = await ollama_client.chat(full_messages, temperature=0.6)
-        session.add_message("assistant", ai_response)
-    except Exception as e:
-        logger.error(f"[session/message] Error: {e}")
-        session.messages.pop()
-        raise HTTPException(status_code=500, detail="Error procesando tu mensaje. Intenta de nuevo.")
+    async def _do_chat():
+        try:
+            ai_response = await ollama_client.chat(full_messages, temperature=0.6)
+            session.add_message("assistant", ai_response)
+            return ai_response
+        except Exception as e:
+            logger.error(f"[session/message] Error: {e}")
+            session.messages.pop()
+            raise HTTPException(status_code=500, detail="Error procesando tu mensaje. Intenta de nuevo.")
+
+    ai_response = await llm_queue.enqueue(1, _do_chat())
 
     return SessionMessageResponse(
         ai_message=ai_response,
