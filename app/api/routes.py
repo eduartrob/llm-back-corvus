@@ -66,46 +66,31 @@ PROHIBIDO dar recomendaciones sobre los proyectos del historial. Esos proyectos 
 3. RECOMENDACIONES: Genera exactamente 4 recomendaciones técnicas. Si faltan secciones, la primera recomendación DEBE ser pedir que agreguen lo que falta.
 
 INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
-Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. No devuelvas ningún texto de relleno ni uses "textos de ejemplo", usa tu propio análisis real y profundo.
+Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. No devuelvas ningún texto de relleno ni uses "textos de ejemplo", DEBES LLENAR el JSON con tu propio análisis real y profundo.
 
-ESTRUCTURA EXACTA A DEVOLVER:
+ESTRUCTURA EXACTA A DEVOLVER (REEMPLAZA LOS VALORES CON TU ANÁLISIS REAL):
 {{
   "innovation_index": {{
-    "score": 85,
-    "label": "Excepcional | Muy Bueno | Aceptable | Tradicional"
+    "score": 0,
+    "label": ""
   }},
   "quality_metrics": {{
-    "academic_rigor": 80,
-    "technical_relevance": 90,
-    "structural_clarity": 70
+    "academic_rigor": 0,
+    "technical_relevance": 0,
+    "structural_clarity": 0
   }},
   "semantic_collision_risk": {{
-    "alert_type": "Alerta Roja | Alerta Amarilla | Falsa Alarma",
-    "explanation": "Aquí debes escribir tu explicación detallada real del análisis de plagio."
+    "alert_type": "",
+    "explanation": ""
   }},
   "recommendations": [
     {{
-      "icon": "code",
-      "title": "Agrega la problemática",
-      "description": "Tu documento no menciona el contexto ni el planteamiento del problema. Debes agregarlo."
-    }},
-    {{
-      "icon": "fact_check",
-      "title": "Define las variables",
-      "description": "Otra sugerencia real basada en el documento evaluado."
-    }},
-    {{
-      "icon": "architecture",
-      "title": "Arquitectura de software",
-      "description": "Otra sugerencia real detallada."
-    }},
-    {{
-      "icon": "library_books",
-      "title": "Marco teórico",
-      "description": "Otra sugerencia real detallada."
+      "icon": "",
+      "title": "",
+      "description": ""
     }}
   ],
-  "verdict": "Veredicto final resumido del proyecto evaluado.",
+  "verdict": "",
   "approved": true
 }}
 """
