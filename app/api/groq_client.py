@@ -5,9 +5,10 @@ from groq import Groq
 
 logger = logging.getLogger(__name__)
 
+from app.config import settings
+
 # Configuración del cliente Groq
-# Usará automáticamente la variable de entorno GROQ_API_KEY
-client = Groq()
+client = Groq(api_key=settings.GROQ_API_KEY)
 
 def analyze_with_groq(system_prompt: str, user_prompt: str) -> dict:
     try:
