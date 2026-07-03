@@ -262,3 +262,36 @@ async def session_message(body: SessionMessageRequest):
         ai_message=ai_response,
         session_id=body.session_id,
     )
+
+@router.post("/generate-name")
+async def generate_name(body: GenerateNameRequest):
+    """
+    Genera un nombre de máximo 4 palabras para un clúster de proyectos,
+    dado un prompt con fragmentos de texto de los proyectos del clúster.
+    """
+    async def _do_generate():
+        if not ollama_client.check_health():
+            raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+
+        try:
+            system_prompt = (
+                "Eres un experto en taxonomía de proyectos de software. "
+                "Analiza los fragmentos de proyectos que te dan y devuelve ÚNICAMENTE "
+                "un nombre de máximo 4 palabras que describa su temática principal en común. "
+                "No uses comillas, no des explicaciones, no añadas puntos. Solo el nombre."
+            )
+            raw_response = await ollama_client.generate(
+                prompt=body.prompt,
+                system_prompt=system_prompt
+            )
+            cleaned = raw_response.strip().strip('"\'.,: ')
+            # Limitar a 4 palabras por si el modelo se pasa
+            words = cleaned.split()
+            name = " ".join(words[:4]) if words else "Tema Tecnológico"
+            return {"name": name}
+        except Exception as e:
+            logger.error(f"[generate-name] Error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return await llm_queue.enqueue(10, _do_generate())
+
