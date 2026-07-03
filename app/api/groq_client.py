@@ -35,3 +35,21 @@ def analyze_with_groq(system_prompt: str, user_prompt: str) -> dict:
     except Exception as e:
         logger.error(f"[GroqClient] Error al conectar con Groq: {e}")
         raise e
+
+def generate_text_with_groq(system_prompt: str, user_prompt: str) -> str:
+    """Llama a Groq y devuelve texto plano (sin JSON). Útil para generar nombres cortos."""
+    try:
+        logger.info("[GroqClient] Generando texto con llama-3.3-70b-versatile...")
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            model="llama-3.3-70b-versatile",
+            timeout=30.0
+        )
+        return chat_completion.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"[GroqClient] Error generando texto: {e}")
+        raise e
+

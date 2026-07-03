@@ -266,32 +266,49 @@ async def session_message(body: SessionMessageRequest):
 @router.post("/generate-name")
 async def generate_name(body: GenerateNameRequest):
     """
-    Genera un nombre de máximo 4 palabras para un clúster de proyectos,
-    dado un prompt con fragmentos de texto de los proyectos del clúster.
+    Genera un nombre de máximo 2 palabras para un clúster de proyectos.
+    Usa el proveedor de IA configurado en el sistema (Groq o Ollama).
     """
-    async def _do_generate():
-        if not ollama_client.check_health():
-            raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+    system_prompt = (
+        "Eres un experto en clasificación de proyectos académicos de ingeniería de software. "
+        "Analiza los fragmentos de proyectos que te dan y responde ÚNICAMENTE con un nombre "
+        "de exactamente 2 palabras en español que describa su área temática principal. "
+        "No uses comillas, no des explicaciones, no escribas nada más. Solo las 2 palabras."
+    )
 
-        try:
-            system_prompt = (
-                "Eres un experto en taxonomía de proyectos de software. "
-                "Analiza los fragmentos de proyectos que te dan y devuelve ÚNICAMENTE "
-                "un nombre de máximo 4 palabras que describa su temática principal en común. "
-                "No uses comillas, no des explicaciones, no añadas puntos. Solo el nombre."
-            )
-            raw_response = await ollama_client.generate(
-                prompt=body.prompt,
-                system_prompt=system_prompt
-            )
-            cleaned = raw_response.strip().strip('"\'.,: ')
-            # Limitar a 4 palabras por si el modelo se pasa
-            words = cleaned.split()
-            name = " ".join(words[:4]) if words else "Tema Tecnológico"
-            return {"name": name}
-        except Exception as e:
-            logger.error(f"[generate-name] Error: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+    async def _do_generate():
+        raw_response = None
+
+        # Intentar con el proveedor configurado
+        if body.provider == "groq":
+            try:
+                from app.api.groq_client import generate_text_with_groq
+                logger.info("[generate-name] Intentando con Groq...")
+                raw_response = await asyncio.to_thread(
+                    generate_text_with_groq, system_prompt, body.prompt
+                )
+            except Exception as e:
+                logger.warning(f"[generate-name] Groq falló ({e}). Failover a Ollama...")
+
+        # Fallback o flujo directo a Ollama
+        if raw_response is None:
+            if not ollama_client.check_health():
+                raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+            try:
+                raw_response = await ollama_client.generate(
+                    prompt=body.prompt,
+                    system_prompt=system_prompt
+                )
+            except Exception as e:
+                logger.error(f"[generate-name] Error con Ollama: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        # Limpiar y limitar a 2 palabras
+        cleaned = raw_response.strip().strip('"\'.,: \n')
+        words = cleaned.split()
+        name = " ".join(words[:2]) if words else "Tema Tecnológico"
+        logger.info(f"[generate-name] Nombre generado: '{name}'")
+        return {"name": name}
 
     return await llm_queue.enqueue(10, _do_generate())
 
