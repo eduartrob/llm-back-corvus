@@ -11,6 +11,7 @@ from app.api.models import (
     StartSessionResponse,
     SessionMessageRequest,
     SessionMessageResponse,
+    GenerateNameRequest,
 )
 from app.services.ollama_client import ollama_client
 from app.services.session_store import session_store
