@@ -10,7 +10,7 @@ REGLAS DE COLISIÓN:
 Responde ÚNICAMENTE con un JSON válido sin markdown ni comentarios con esta estructura exacta:
 {
   "innovation_index": { "score": <0-100>, "label": "<Excepcional|Muy Bueno|Aceptable|Tradicional>" },
-  "quality_metrics": { "academic_rigor": <0-100>, "technical_relevance": <0-100>, "structural_clarity": <0-100> },
+  "quality_metrics": { "academic_rigor": <0-100 (ej: 85, NO 8)>, "technical_relevance": <0-100 (ej: 90, NO 9)>, "structural_clarity": <0-100> },
   "semantic_collision_risk": { "alert_type": "<Alerta Roja|Alerta Amarilla|Falsa Alarma>", "explanation": "<análisis detallado>" },
   "recommendations": [{ "icon": "<code|lock|fact_check|architecture|library_books>", "title": "<título>", "description": "<descripción>" }],
   "verdict": "<resumen del dictamen>",
@@ -74,8 +74,8 @@ INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
 Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. No devuelvas ningún texto de relleno ni uses "textos de ejemplo", DEBES LLENAR el JSON con tu propio análisis real y profundo.
 
 El JSON debe tener EXACTAMENTE estas claves y tipos de datos:
-- "innovation_index": objeto con "score" (número del 0 al 100) y "label" (string).
-- "quality_metrics": objeto con "academic_rigor" (número), "technical_relevance" (número) y "structural_clarity" (número).
+- "innovation_index": objeto con "score" (número del 0 al 100, ej: 85) y "label" (string).
+- "quality_metrics": objeto con "academic_rigor" (número del 0 al 100, ej: 90 NO 9), "technical_relevance" (número del 0 al 100) y "structural_clarity" (número del 0 al 100).
 - "semantic_collision_risk": objeto con "alert_type" (string) y "explanation" (string).
 - "recommendations": arreglo de 4 objetos, donde cada uno tiene "icon" (string: elige entre 'code', 'lock', 'fact_check', 'architecture' o 'library_books'), "title" (string) y "description" (string largo).
 - "verdict": string (un breve resumen).
@@ -105,7 +105,7 @@ INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
 Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. Responde ÚNICAMENTE con esta estructura exacta, reemplazando los valores en corchetes angulares por tus valores reales:
 {{
   "innovation_index": {{ "score": <0-100>, "label": "<Excepcional|Muy Bueno|Aceptable|Tradicional>" }},
-  "quality_metrics": {{ "academic_rigor": <0-100>, "technical_relevance": <0-100>, "structural_clarity": <0-100> }},
+  "quality_metrics": {{ "academic_rigor": <0-100 (ej: 85, NO 8)>, "technical_relevance": <0-100 (ej: 90, NO 9)>, "structural_clarity": <0-100> }},
   "semantic_collision_risk": {{ "alert_type": "<Alerta Roja|Alerta Amarilla|Falsa Alarma>", "explanation": "<análisis detallado>" }},
   "recommendations": [{{ "icon": "<code|lock|fact_check|architecture|library_books>", "title": "<título>", "description": "<descripción>" }}],
   "verdict": "<resumen del dictamen>",
