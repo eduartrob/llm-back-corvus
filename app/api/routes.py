@@ -11,6 +11,7 @@ from app.api.models import (
     StartSessionResponse,
     SessionMessageRequest,
     SessionMessageResponse,
+    GenerateNameRequest,
 )
 from app.services.ollama_client import ollama_client
 from app.services.session_store import session_store
@@ -27,60 +28,12 @@ class BlueOceanRequest(BaseModel):
 
 # prompt de analisis de propuesta reutilizado del clustering service
 
-ANALYSIS_SYSTEM_PROMPT = """Eres un estricto comité evaluador de proyectos universitarios en AcadeRAG.
-Evalúa EXCLUSIVAMENTE la nueva propuesta. El historial es solo referencia para detectar plagio.
-
-REGLAS DE COLISIÓN:
-- Similitud > 50% con idea idéntica → Alerta Roja
-- Similitud 20-50% con diferenciadores → Falsa Alarma
-- Similitud 20-50% sin diferenciadores → Alerta Amarilla  
-- Similitud > 90% → Plagio (innovation_index: 0, approved: false)
-
-Responde ÚNICAMENTE con un JSON válido sin markdown ni comentarios con esta estructura exacta:
-{
-  "innovation_index": { "score": <0-100>, "label": "<Excepcional|Muy Bueno|Aceptable|Tradicional>" },
-  "quality_metrics": { "academic_rigor": <0-100>, "technical_relevance": <0-100>, "structural_clarity": <0-100> },
-  "semantic_collision_risk": { "alert_type": "<Alerta Roja|Alerta Amarilla|Falsa Alarma>", "explanation": "<análisis detallado>" },
-  "recommendations": [{ "icon": "<code|lock|fact_check|architecture|library_books>", "title": "<título>", "description": "<descripción>" }],
-  "verdict": "<resumen del dictamen>",
-  "approved": <true|false>
-}"""
-
-def build_groq_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> tuple[str, str]:
-    system_prompt = f"""Eres un estricto evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
-
-=== TU ÚNICA TAREA ===
-Redactar un DICTAMEN COMPLETO sobre el proyecto.
-TODAS tus métricas deben referirse EXCLUSIVAMENTE al proyecto evaluado.
-PROHIBIDO dar recomendaciones sobre los proyectos del historial. Esos proyectos son SOLO para detectar plagio.
-
-=== REGLAS ESTRICTAS DE EVALUACIÓN ===
-1. COLISIÓN: El sistema ya calculó matemáticamente que el riesgo de colisión es: {risk_level.upper()} (Similitud: {max_sim_pct}%). En el campo 'explanation' de 'semantic_collision_risk', DEBES justificar detalladamente por qué el enfoque es distinto (o similar) al proyecto '{top_project_name}'.
-2. SECCIONES FALTANTES: Si al documento le faltan secciones clave (ej. no tiene objetivos claros, no tiene problemática, no tiene variables), DEBES castigar severamente las métricas de 'academic_rigor' y 'structural_clarity'.
-3. RECOMENDACIONES: Genera exactamente 4 recomendaciones técnicas. Si faltan secciones, la primera recomendación DEBE ser pedir que agreguen lo que falta.
-
-INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
-Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. No devuelvas ningún texto de relleno ni uses "textos de ejemplo", DEBES LLENAR el JSON con tu propio análisis real y profundo.
-
-El JSON debe tener EXACTAMENTE estas claves y tipos de datos:
-- "innovation_index": objeto con "score" (número del 0 al 100) y "label" (string).
-- "quality_metrics": objeto con "academic_rigor" (número), "technical_relevance" (número) y "structural_clarity" (número).
-- "semantic_collision_risk": objeto con "alert_type" (string) y "explanation" (string).
-- "recommendations": arreglo de 4 objetos, donde cada uno tiene "icon" (string: elige entre 'code', 'lock', 'fact_check', 'architecture' o 'library_books'), "title" (string) y "description" (string largo).
-- "verdict": string (un breve resumen).
-- "approved": booleano (true o false).
-"""
-
-    user_prompt = f"""=== PROYECTO A EVALUAR: "{project_name}" ===
-{proposal_text}
-=== FIN DE "{project_name}" ===
-
-=== HISTORIAL (SOLO LECTURA PARA DETECTAR PLAGIO, NO EVALUAR) ===
-{context_text}
-=== FIN DEL HISTORIAL ===
-"""
-    
-    return system_prompt, user_prompt
+from app.core.prompts import (
+    BLUE_OCEAN_SYSTEM_PROMPT,
+    build_blue_ocean_user_prompt,
+    build_groq_analysis_prompt,
+    build_ollama_analysis_prompt
+)
 
 @router.get("/health")
 async def health():
@@ -95,25 +48,8 @@ async def health():
 @router.post("/analyze-blue-ocean")
 async def analyze_blue_ocean(body: BlueOceanRequest):
     async def _do_analysis():
-        system_prompt = "Eres un experto analista de datos e investigador académico. Genera un análisis JSON detallado para un tema de Océano Azul."
-        user_prompt = f"""Analiza este nicho de océano azul (baja colisión semántica).
-Título: {body.title}
-Descripción: {body.description}
-Categoría: {body.category}
-
-Genera un JSON con tres sugerencias de innovación, un hallazgo principal, y métricas.
-Estructura JSON estricta (no uses backticks):
-{{
-    "hallazgo_principal": "string",
-    "sugerencias": [
-        {{"titulo": "string", "descripcion": "string", "tipo": "string"}}
-    ],
-    "metricas": {{
-        "originalidad": 85,
-        "disponibilidad_datos": 60,
-        "relevancia_academica": 90
-    }}
-}}"""
+        system_prompt = BLUE_OCEAN_SYSTEM_PROMPT
+        user_prompt = build_blue_ocean_user_prompt(body.title, body.description, body.category)
         
         # Intentar con Groq primero
         try:
@@ -141,51 +77,12 @@ Estructura JSON estricta (no uses backticks):
             return json.loads(cleaned_response)
         except Exception as e:
             logger.error(f"[analyze-blue-ocean] Error con Ollama: {e}")
-            return {
-                "hallazgo_principal": "Este tema presenta una oportunidad única por su baja colisión con los registros académicos actuales.",
-                "sugerencias": [
-                    {"titulo": "Investigación Cuantitativa", "descripcion": "Desarrollar métricas base.", "tipo": "Recomendado"},
-                    {"titulo": "Estudio Exploratorio", "descripcion": "Evaluar viabilidad en campo.", "tipo": "Alternativo"}
-                ],
-                "metricas": {
-                    "originalidad": 85,
-                    "disponibilidad_datos": 60,
-                    "relevancia_academica": 90
-                }
-            }
+            raise HTTPException(status_code=503, detail="El motor de IA (Ollama) falló al procesar la solicitud.")
 
     # Prioridad baja (10) para tareas de fondo
     return await llm_queue.enqueue(10, _do_analysis())
 
-def build_ollama_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> tuple[str, str]:
-    system_prompt = f"""Eres un estricto evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
-TU ÚNICA TAREA es redactar un DICTAMEN COMPLETO sobre la nueva propuesta.
 
-REGLAS ESTRICTAS DE EVALUACIÓN:
-1. COLISIÓN: El sistema ya calculó matemáticamente que el riesgo de colisión es: {risk_level.upper()} (Similitud: {max_sim_pct}%). Justifica detalladamente en 'explanation' por qué el enfoque es distinto (o similar) al proyecto '{top_project_name}'.
-2. RECOMENDACIONES: Genera exactamente 4 recomendaciones técnicas sobre cómo mejorar.
-3. CALIFICACIONES: Las métricas deben ser números reales (0 a 100) basados en tu evaluación real. NO uses los textos de ejemplo de la plantilla.
-
-INSTRUCCIONES FINALES DE ESTRUCTURA JSON:
-Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. Responde ÚNICAMENTE con esta estructura exacta, reemplazando los valores en corchetes angulares por tus valores reales:
-{{
-  "innovation_index": {{ "score": <0-100>, "label": "<Excepcional|Muy Bueno|Aceptable|Tradicional>" }},
-  "quality_metrics": {{ "academic_rigor": <0-100>, "technical_relevance": <0-100>, "structural_clarity": <0-100> }},
-  "semantic_collision_risk": {{ "alert_type": "<Alerta Roja|Alerta Amarilla|Falsa Alarma>", "explanation": "<análisis detallado>" }},
-  "recommendations": [{{ "icon": "<code|lock|fact_check|architecture|library_books>", "title": "<título>", "description": "<descripción>" }}],
-  "verdict": "<resumen del dictamen>",
-  "approved": <true|false>
-}}"""
-
-    user_prompt = f"""=== PROYECTO A EVALUAR: "{project_name}" ===
-{proposal_text}
-=== FIN DE "{project_name}" ===
-
-=== HISTORIAL (SOLO LECTURA PARA DETECTAR PLAGIO, NO EVALUAR) ===
-{context_text}
-=== FIN DEL HISTORIAL ===
-"""
-    return system_prompt, user_prompt
 
 @router.post("/analyze-proposal")
 async def analyze_proposal(body: AnalyzeProposalRequest):
@@ -365,3 +262,53 @@ async def session_message(body: SessionMessageRequest):
         ai_message=ai_response,
         session_id=body.session_id,
     )
+
+@router.post("/generate-name")
+async def generate_name(body: GenerateNameRequest):
+    """
+    Genera un nombre de máximo 2 palabras para un clúster de proyectos.
+    Usa el proveedor de IA configurado en el sistema (Groq o Ollama).
+    """
+    system_prompt = (
+        "Eres un experto en clasificación de proyectos académicos de ingeniería de software. "
+        "Analiza los fragmentos de proyectos que te dan y responde ÚNICAMENTE con un nombre "
+        "de exactamente 2 palabras en español que describa su área temática principal. "
+        "No uses comillas, no des explicaciones, no escribas nada más. Solo las 2 palabras."
+    )
+
+    async def _do_generate():
+        raw_response = None
+
+        # Intentar con el proveedor configurado
+        if body.provider == "groq":
+            try:
+                from app.api.groq_client import generate_text_with_groq
+                logger.info("[generate-name] Intentando con Groq...")
+                raw_response = await asyncio.to_thread(
+                    generate_text_with_groq, system_prompt, body.prompt
+                )
+            except Exception as e:
+                logger.warning(f"[generate-name] Groq falló ({e}). Failover a Ollama...")
+
+        # Fallback o flujo directo a Ollama
+        if raw_response is None:
+            if not ollama_client.check_health():
+                raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+            try:
+                raw_response = await ollama_client.generate(
+                    prompt=body.prompt,
+                    system_prompt=system_prompt
+                )
+            except Exception as e:
+                logger.error(f"[generate-name] Error con Ollama: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        # Limpiar y limitar a 2 palabras
+        cleaned = raw_response.strip().strip('"\'.,: \n')
+        words = cleaned.split()
+        name = " ".join(words[:2]) if words else "Tema Tecnológico"
+        logger.info(f"[generate-name] Nombre generado: '{name}'")
+        return {"name": name}
+
+    return await llm_queue.enqueue(10, _do_generate())
+

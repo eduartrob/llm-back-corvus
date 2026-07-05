@@ -34,3 +34,7 @@ class SessionMessageRequest(BaseModel):
 class SessionMessageResponse(BaseModel):
     ai_message: str
     session_id: str
+
+class GenerateNameRequest(BaseModel):
+    prompt: str
+    provider: str = "ollama"
