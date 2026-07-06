@@ -12,6 +12,7 @@ from app.api.models import (
     SessionMessageRequest,
     SessionMessageResponse,
     GenerateNameRequest,
+    GenerateRAGSummaryRequest,
 )
 from app.services.ollama_client import ollama_client
 from app.services.session_store import session_store
@@ -32,7 +33,8 @@ from app.core.prompts import (
     BLUE_OCEAN_SYSTEM_PROMPT,
     build_blue_ocean_user_prompt,
     build_groq_analysis_prompt,
-    build_ollama_analysis_prompt
+    build_ollama_analysis_prompt,
+    build_rag_summary_prompt
 )
 
 @router.get("/health")
@@ -312,3 +314,47 @@ async def generate_name(body: GenerateNameRequest):
 
     return await llm_queue.enqueue(10, _do_generate())
 
+@router.post("/generate-rag-summary")
+async def generate_rag_summary(body: GenerateRAGSummaryRequest):
+    """
+    Genera un resumen usando Llama3 a través de Groq o Ollama,
+    basándose únicamente en el contexto recuperado de ChromaDB.
+    """
+    if not body.context.strip():
+        return {"summary": "Lo siento, no encontré información sobre este tema en los apuntes de la clase."}
+
+    system_prompt, user_prompt = build_rag_summary_prompt(body.query, body.context)
+
+    async def _do_generate():
+        raw_response = None
+
+        if body.provider == "groq":
+            try:
+                from app.api.groq_client import generate_text_with_groq
+                logger.info("[generate-rag-summary] Intentando con Groq...")
+                raw_response = await asyncio.to_thread(
+                    generate_text_with_groq, system_prompt, user_prompt
+                )
+            except Exception as e:
+                logger.warning(f"[generate-rag-summary] Groq falló ({e}). Failover a Ollama...")
+
+        if raw_response is None:
+            if not ollama_client.check_health():
+                resumen_simulado = body.context[:500].strip()
+                if len(body.context) > 500:
+                    resumen_simulado += "..."
+                return {"summary": f"Hubo un error contactando a la IA, pero aquí está el extracto más relevante:\n\n❝ {resumen_simulado} ❞"}
+            
+            try:
+                raw_response = await ollama_client.generate(
+                    prompt=user_prompt,
+                    system_prompt=system_prompt
+                )
+            except Exception as e:
+                logger.error(f"[generate-rag-summary] Error con Ollama: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        return {"summary": raw_response}
+
+    # Prioridad alta para interacciones de chat
+    return await llm_queue.enqueue(1, _do_generate())
