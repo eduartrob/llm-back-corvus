@@ -38,3 +38,8 @@ class SessionMessageResponse(BaseModel):
 class GenerateNameRequest(BaseModel):
     prompt: str
     provider: str = "ollama"
+
+class GenerateRAGSummaryRequest(BaseModel):
+    query: str
+    context: str
+    provider: str = "groq"

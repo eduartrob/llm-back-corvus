@@ -121,3 +121,16 @@ Tu salida debe ser ÚNICA y EXCLUSIVAMENTE un documento JSON válido. Responde �
 === FIN DEL HISTORIAL ===
 """
     return system_prompt, user_prompt
+
+def build_rag_summary_prompt(query: str, context: str) -> tuple[str, str]:
+    system_prompt = "Eres un asistente académico útil y preciso."
+    user_prompt = f"""Eres un asistente académico experto de la aplicación Corvus. Tu objetivo es responder la duda del estudiante utilizando ÚNICAMENTE la siguiente información extraída de los materiales del profesor. 
+No inventes información, si la respuesta no está en el contexto, di que no hay suficiente información en los materiales.
+Responde de manera amable, clara y estructurada.
+
+Consulta del estudiante: {query}
+
+Contexto (Material del profesor):
+{context}
+"""
+    return system_prompt, user_prompt
