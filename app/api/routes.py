@@ -418,12 +418,15 @@ async def analyze_homework(body: AnalyzeHomeworkRequest):
                 raise HTTPException(status_code=500, detail=str(e))
 
         try:
-            cleaned = raw_response.strip()
-            if cleaned.startswith("```json"): cleaned = cleaned[7:]
-            if cleaned.startswith("```"): cleaned = cleaned[3:]
-            if cleaned.endswith("```"): cleaned = cleaned[:-3]
-            
-            data = json.loads(cleaned)
+            if isinstance(raw_response, dict):
+                data = raw_response
+            else:
+                cleaned = raw_response.strip()
+                if cleaned.startswith("```json"): cleaned = cleaned[7:]
+                if cleaned.startswith("```"): cleaned = cleaned[3:]
+                if cleaned.endswith("```"): cleaned = cleaned[:-3]
+                
+                data = json.loads(cleaned)
             # Asegurar formato
             if "tecnologias_detectadas" not in data:
                 data["tecnologias_detectadas"] = []
