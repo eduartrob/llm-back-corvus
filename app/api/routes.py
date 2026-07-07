@@ -13,6 +13,7 @@ from app.api.models import (
     SessionMessageResponse,
     GenerateNameRequest,
     GenerateRAGSummaryRequest,
+    AnalyzeHomeworkRequest,
 )
 from app.services.ollama_client import ollama_client
 from app.services.session_store import session_store
@@ -358,3 +359,78 @@ async def generate_rag_summary(body: GenerateRAGSummaryRequest):
 
     # Prioridad alta para interacciones de chat
     return await llm_queue.enqueue(1, _do_generate())
+
+@router.post("/analyze-homework")
+async def analyze_homework(body: AnalyzeHomeworkRequest):
+    """
+    Analiza una tarea (documento de texto completo) para extraer tecnologías y detectar IA.
+    """
+    system_prompt = (
+        "Eres un analizador técnico de tareas académicas. "
+        "A partir del título y el texto completo proporcionado, tu objetivo es extraer una lista "
+        "de las tecnologías (lenguajes, frameworks, herramientas de TI) principales que se mencionan. "
+        "Además, debes analizar el texto y dar una puntuación sobre qué tan probable es que haya sido "
+        "generado por Inteligencia Artificial (ChatGPT, Claude, etc).\n"
+        "Debes responder ESTRICTAMENTE con un objeto JSON (sin comillas invertidas ni bloques ```) "
+        "que tenga esta estructura exacta:\n"
+        "{\n"
+        "  \"tecnologias_detectadas\": [\n"
+        "    {\"tecnologia\": \"Python\", \"score\": 0.95},\n"
+        "    {\"tecnologia\": \"React\", \"score\": 0.80}\n"
+        "  ],\n"
+        "  \"es_ia\": false,\n"
+        "  \"probabilidad_ia\": 0.15\n"
+        "}\n"
+        "El 'score' de tecnología es un float entre 0.0 y 1.0 indicando relevancia. "
+        "El campo 'es_ia' es booleano (true si probabilidad_ia >= 0.75). 'probabilidad_ia' es float 0.0 a 1.0."
+    )
+    
+    # Si el texto es absurdamente largo (>12000 caracteres), tomamos el principio y el final.
+    text_to_process = body.full_text
+    if len(text_to_process) > 12000:
+        text_to_process = text_to_process[:6000] + "\n\n... [TEXTO OMITIDO] ...\n\n" + text_to_process[-6000:]
+        
+    user_prompt = f"Título de la Tarea: {body.title}\n\nContenido de la tarea:\n{text_to_process}"
+
+    async def _do_analysis():
+        raw_response = None
+
+        if body.provider == "groq":
+            try:
+                from app.api.groq_client import analyze_with_groq
+                logger.info("[analyze-homework] Intentando con Groq...")
+                raw_response = await asyncio.to_thread(
+                    analyze_with_groq, system_prompt, user_prompt
+                )
+            except Exception as e:
+                logger.warning(f"[analyze-homework] Groq falló ({e}). Failover a Ollama...")
+
+        if raw_response is None:
+            if not ollama_client.check_health():
+                raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+            try:
+                raw_response = await ollama_client.generate(
+                    prompt=user_prompt,
+                    system_prompt=system_prompt
+                )
+            except Exception as e:
+                logger.error(f"[analyze-homework] Error con Ollama: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        try:
+            cleaned = raw_response.strip()
+            if cleaned.startswith("```json"): cleaned = cleaned[7:]
+            if cleaned.startswith("```"): cleaned = cleaned[3:]
+            if cleaned.endswith("```"): cleaned = cleaned[:-3]
+            
+            data = json.loads(cleaned)
+            # Asegurar formato
+            if "tecnologias_detectadas" not in data:
+                data["tecnologias_detectadas"] = []
+            return data
+        except json.JSONDecodeError:
+            logger.error(f"[analyze-homework] La IA no devolvió un JSON válido: {raw_response}")
+            return {"tecnologias_detectadas": [], "es_ia": None, "probabilidad_ia": None}
+
+    # Prioridad media para tareas
+    return await llm_queue.enqueue(5, _do_analysis())
