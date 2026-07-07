@@ -43,3 +43,17 @@ class GenerateRAGSummaryRequest(BaseModel):
     query: str
     context: str
     provider: str = "groq"
+
+class AnalyzeHomeworkRequest(BaseModel):
+    title: str
+    full_text: str
+    provider: str = "groq"
+
+class DetectedTechnology(BaseModel):
+    tecnologia: str
+    score: float
+
+class AnalyzeHomeworkResponse(BaseModel):
+    tecnologias_detectadas: list[DetectedTechnology]
+    es_ia: Optional[bool] = None
+    probabilidad_ia: Optional[float] = None
