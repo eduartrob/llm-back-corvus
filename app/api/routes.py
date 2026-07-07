@@ -14,6 +14,8 @@ from app.api.models import (
     GenerateNameRequest,
     GenerateRAGSummaryRequest,
     AnalyzeHomeworkRequest,
+    FilterSoftwareRequest,
+    FilterSoftwareResponse
 )
 from app.services.ollama_client import ollama_client
 from app.services.session_store import session_store
@@ -437,3 +439,51 @@ async def analyze_homework(body: AnalyzeHomeworkRequest):
 
     # Prioridad media para tareas
     return await llm_queue.enqueue(5, _do_analysis())
+
+@router.post("/filter-software-documents", response_model=FilterSoftwareResponse)
+async def filter_software_documents(req: FilterSoftwareRequest):
+    """
+    Evalúa una lista de documentos por título y carpeta.
+    Retorna únicamente los IDs que semánticamente corresponden a software,
+    programación, sistemas, bases de datos o tecnología.
+    """
+    async def _do_filter():
+        if not req.documents:
+            return {"valid_ids": []}
+
+        system_prompt = (
+            "Eres un filtro experto de materias universitarias. Tu único propósito es evaluar una lista "
+            "de documentos (tareas, materias, proyectos) y determinar cuáles pertenecen al área de "
+            "Ingeniería de Software, Programación, Sistemas, Bases de Datos, Redes, Arquitectura o afines.\n"
+            "IGNORA materias de tronco común, humanidades, inglés, valores, deportes, historia, derecho, etc.\n"
+            "Responde ÚNICAMENTE con un JSON que tenga la clave 'valid_ids' conteniendo un arreglo "
+            "de los IDs aprobados. No incluyas texto extra."
+        )
+
+        lista_docs = [{"id": d.id, "name": d.name, "folder": d.folder} for d in req.documents]
+        user_prompt = f"Evalúa esta lista y devuelve los IDs válidos en JSON:\n{json.dumps(lista_docs, ensure_ascii=False)}"
+
+        try:
+            if not ollama_client.check_health():
+                logger.warning("[filter-software] Ollama no disponible, aprobando todos por fallback.")
+                return {"valid_ids": [d.id for d in req.documents]}
+
+            raw_response = await ollama_client.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt
+            )
+            
+            cleaned = raw_response.strip()
+            if cleaned.startswith("```json"): cleaned = cleaned[7:]
+            if cleaned.startswith("```"): cleaned = cleaned[3:]
+            if cleaned.endswith("```"): cleaned = cleaned[:-3]
+            
+            data = json.loads(cleaned)
+            if "valid_ids" not in data or not isinstance(data["valid_ids"], list):
+                return {"valid_ids": []}
+            return data
+        except Exception as e:
+            logger.error(f"[filter-software] Error procesando con Ollama: {e}")
+            return {"valid_ids": [d.id for d in req.documents]}
+
+    return await llm_queue.enqueue(3, _do_filter())
