@@ -57,3 +57,15 @@ class AnalyzeHomeworkResponse(BaseModel):
     tecnologias_detectadas: list[DetectedTechnology]
     es_ia: Optional[bool] = None
     probabilidad_ia: Optional[float] = None
+
+class DocumentItem(BaseModel):
+    id: str
+    name: str
+    folder: str
+
+class FilterSoftwareRequest(BaseModel):
+    documents: list[DocumentItem]
+    provider: str = "ollama"
+
+class FilterSoftwareResponse(BaseModel):
+    valid_ids: list[str]
