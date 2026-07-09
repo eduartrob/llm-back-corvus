@@ -15,7 +15,9 @@ from app.api.models import (
     GenerateRAGSummaryRequest,
     AnalyzeHomeworkRequest,
     FilterSoftwareRequest,
-    FilterSoftwareResponse
+    FilterSoftwareResponse,
+    GenerateCareerSkillsRequest,
+    GenerateCareerSkillsResponse
 )
 from app.services.ollama_client import ollama_client
 from app.services.session_store import session_store
@@ -487,3 +489,68 @@ async def filter_software_documents(req: FilterSoftwareRequest):
             return {"valid_ids": [d.id for d in req.documents]}
 
     return await llm_queue.enqueue(3, _do_filter())
+
+@router.post("/generate-career-skills", response_model=GenerateCareerSkillsResponse)
+async def generate_career_skills(body: GenerateCareerSkillsRequest):
+    """
+    Genera 100 habilidades para una carrera universitaria usando Groq o Ollama.
+    """
+    system_prompt = (
+        "Eres un experto en currículas universitarias y orientación vocacional. "
+        "Se te dará el nombre de una carrera universitaria y debes devolver un JSON array "
+        "con exactamente 100 habilidades (skills) técnicas, blandas y conocimientos clave "
+        "que adquiere un egresado de esa carrera. Deben ser cortas (ej. 'Python', 'Liderazgo'). "
+        "RESPONDE ÚNICAMENTE CON EL JSON ARRAY y nada más."
+    )
+    user_prompt = body.career_name
+
+    async def _do_generate():
+        raw_response = None
+        if body.provider == "groq":
+            try:
+                from app.api.groq_client import generate_text_with_groq
+                logger.info(f"[generate-career-skills] Intentando con Groq para {body.career_name}...")
+                raw_response = await asyncio.to_thread(
+                    generate_text_with_groq, system_prompt, user_prompt
+                )
+            except Exception as e:
+                logger.warning(f"[generate-career-skills] Groq falló ({e}). Failover a Ollama...")
+
+        if raw_response is None:
+            if not ollama_client.check_health():
+                return {"skills": ["Resolución de problemas", "Trabajo en equipo", "Liderazgo", "Adaptabilidad"]}
+            try:
+                raw_response = await ollama_client.generate(
+                    prompt=user_prompt,
+                    system_prompt=system_prompt
+                )
+            except Exception as e:
+                logger.error(f"[generate-career-skills] Error con Ollama: {e}")
+                return {"skills": ["Resolución de problemas", "Trabajo en equipo", "Liderazgo", "Adaptabilidad"]}
+
+        try:
+            cleaned = raw_response.strip()
+            if cleaned.startswith("```json"): cleaned = cleaned[7:]
+            if cleaned.startswith("```"): cleaned = cleaned[3:]
+            if cleaned.endswith("```"): cleaned = cleaned[:-3]
+            
+            data = json.loads(cleaned)
+            if isinstance(data, list):
+                return {"skills": data}
+            elif isinstance(data, dict) and "skills" in data:
+                return {"skills": data["skills"]}
+            else:
+                return {"skills": ["Resolución de problemas", "Trabajo en equipo"]}
+        except Exception as e:
+            logger.error(f"[generate-career-skills] Parse error: {e}")
+            import re
+            matches = re.search(r'\[(.*?)\]', raw_response, re.DOTALL)
+            if matches:
+                try:
+                    skills_arr = json.loads(f"[{matches.group(1)}]")
+                    return {"skills": skills_arr}
+                except:
+                    pass
+            return {"skills": ["Resolución de problemas", "Trabajo en equipo"]}
+
+    return await llm_queue.enqueue(3, _do_generate())
