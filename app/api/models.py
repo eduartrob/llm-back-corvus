@@ -69,3 +69,10 @@ class FilterSoftwareRequest(BaseModel):
 
 class FilterSoftwareResponse(BaseModel):
     valid_ids: list[str]
+
+class GenerateCareerSkillsRequest(BaseModel):
+    career_name: str
+    provider: str = "groq"
+
+class GenerateCareerSkillsResponse(BaseModel):
+    skills: list[str]

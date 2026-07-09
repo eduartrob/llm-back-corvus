@@ -1,3 +1,6 @@
+## [1.2.13] - 2026-07-09
+- Preparación para nueva arquitectura de Proyectos Integradores.
+
 # Changelog - LLM Backend Corvus
 
 ## [1.1.0] - 2026-07-02
