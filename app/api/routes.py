@@ -203,9 +203,10 @@ async def start_session(
 
     if mode == "defense":
         opening_prompt = (
-            "El alumno acaba de ver que su proyecto fue aprobado. "
+            "El alumno acaba de ver que su proyecto fue pre-aprobado. "
             "Abre la sesión de defensa presentándote brevemente y lanzando tu primera pregunta difícil "
-            "sobre el punto más débil que identificas en el proyecto. Sé directo y específico."
+            "sobre el punto más débil que identificas en el proyecto. Sé directo y específico. "
+            "Recuerda incluir al final '[SCORE: 0/100]'."
         )
     else:
         score = body.analysis_result.get("innovation_index", {}).get("score", 0)
