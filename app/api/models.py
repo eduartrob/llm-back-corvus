@@ -74,5 +74,16 @@ class GenerateCareerSkillsRequest(BaseModel):
     career_name: str
     provider: str = "groq"
 
+class CareerSkillItem(BaseModel):
+    name: str
+    weight: int
+
 class GenerateCareerSkillsResponse(BaseModel):
-    skills: list[str]
+    skills: list[CareerSkillItem]
+
+class ValidateIdeaQuickRequest(BaseModel):
+    idea: str
+    blocked_topics: list[str] = []
+    blocked_techs: list[str] = []
+    similar_projects: list[dict] = []
+    provider: str = "ollama"

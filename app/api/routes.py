@@ -17,7 +17,8 @@ from app.api.models import (
     FilterSoftwareRequest,
     FilterSoftwareResponse,
     GenerateCareerSkillsRequest,
-    GenerateCareerSkillsResponse
+    GenerateCareerSkillsResponse,
+    ValidateIdeaQuickRequest
 )
 from app.services.ollama_client import ollama_client
 from app.services.session_store import session_store
@@ -304,7 +305,8 @@ async def generate_name(body: GenerateNameRequest):
             try:
                 raw_response = await ollama_client.generate(
                     prompt=body.prompt,
-                    system_prompt=system_prompt
+                    system_prompt=system_prompt,
+                    json_format=False
                 )
             except Exception as e:
                 logger.error(f"[generate-name] Error con Ollama: {e}")
@@ -353,7 +355,8 @@ async def generate_rag_summary(body: GenerateRAGSummaryRequest):
             try:
                 raw_response = await ollama_client.generate(
                     prompt=user_prompt,
-                    system_prompt=system_prompt
+                    system_prompt=system_prompt,
+                    json_format=False
                 )
             except Exception as e:
                 logger.error(f"[generate-rag-summary] Error con Ollama: {e}")
@@ -493,14 +496,16 @@ async def filter_software_documents(req: FilterSoftwareRequest):
 @router.post("/generate-career-skills", response_model=GenerateCareerSkillsResponse)
 async def generate_career_skills(body: GenerateCareerSkillsRequest):
     """
-    Genera 100 habilidades para una carrera universitaria usando Groq o Ollama.
+    Genera 100 habilidades para una carrera universitaria usando Groq o Ollama, con su respectivo peso.
     """
     system_prompt = (
         "Eres un experto en currículas universitarias y orientación vocacional. "
         "Se te dará el nombre de una carrera universitaria y debes devolver un JSON array "
         "con exactamente 100 habilidades (skills) técnicas, blandas y conocimientos clave "
         "que adquiere un egresado de esa carrera. Deben ser cortas (ej. 'Python', 'Liderazgo'). "
-        "RESPONDE ÚNICAMENTE CON EL JSON ARRAY y nada más."
+        "Para cada habilidad asigna un 'weight' (entero del 1 al 10) según la importancia de la habilidad para esa carrera. "
+        "RESPONDE ÚNICAMENTE CON UN JSON ARRAY con este formato exacto: "
+        "[{\"name\": \"Python\", \"weight\": 9}, {\"name\": \"Liderazgo\", \"weight\": 7}]"
     )
     user_prompt = body.career_name
 
@@ -518,7 +523,7 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
 
         if raw_response is None:
             if not ollama_client.check_health():
-                return {"skills": ["Resolución de problemas", "Trabajo en equipo", "Liderazgo", "Adaptabilidad"]}
+                return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
             try:
                 raw_response = await ollama_client.generate(
                     prompt=user_prompt,
@@ -526,7 +531,7 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
                 )
             except Exception as e:
                 logger.error(f"[generate-career-skills] Error con Ollama: {e}")
-                return {"skills": ["Resolución de problemas", "Trabajo en equipo", "Liderazgo", "Adaptabilidad"]}
+                return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
 
         try:
             cleaned = raw_response.strip()
@@ -535,12 +540,16 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
             if cleaned.endswith("```"): cleaned = cleaned[:-3]
             
             data = json.loads(cleaned)
+            
             if isinstance(data, list):
-                return {"skills": data}
+                # Ensure each element is a dict with name and weight
+                processed = [{"name": item.get("name", "Unknown"), "weight": item.get("weight", 5)} if isinstance(item, dict) else {"name": str(item), "weight": 5} for item in data]
+                return {"skills": processed}
             elif isinstance(data, dict) and "skills" in data:
-                return {"skills": data["skills"]}
+                processed = [{"name": item.get("name", "Unknown"), "weight": item.get("weight", 5)} if isinstance(item, dict) else {"name": str(item), "weight": 5} for item in data["skills"]]
+                return {"skills": processed}
             else:
-                return {"skills": ["Resolución de problemas", "Trabajo en equipo"]}
+                return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
         except Exception as e:
             logger.error(f"[generate-career-skills] Parse error: {e}")
             import re
@@ -548,9 +557,71 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
             if matches:
                 try:
                     skills_arr = json.loads(f"[{matches.group(1)}]")
-                    return {"skills": skills_arr}
+                    processed = [{"name": item.get("name", "Unknown"), "weight": item.get("weight", 5)} if isinstance(item, dict) else {"name": str(item), "weight": 5} for item in skills_arr]
+                    return {"skills": processed}
                 except:
                     pass
-            return {"skills": ["Resolución de problemas", "Trabajo en equipo"]}
+            return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
 
     return await llm_queue.enqueue(3, _do_generate())
+
+@router.post("/validate-idea-quick")
+async def validate_idea_quick(body: ValidateIdeaQuickRequest):
+    """
+    Evalúa una idea de proyecto integrador verificando reglas del profesor,
+    posibles colisiones con otros proyectos y viabilidad general.
+    Esta evaluación debe ser súper rápida (idealmente de 1 a 3 párrafos).
+    """
+    provider = body.provider or "ollama"
+
+    system_prompt = (
+        "Eres un Asesor Técnico de Proyectos Integradores en una universidad. "
+        "Tu objetivo es dar una retroalimentación extremadamente breve, directa y profesional "
+        "(máximo 3 párrafos) sobre la viabilidad de la idea de proyecto que propone el alumno."
+    )
+
+    user_prompt = f"El alumno propone la siguiente idea:\n\"{body.idea}\"\n\n"
+
+    if body.blocked_topics or body.blocked_techs:
+        user_prompt += "Ten en cuenta que el profesor ha PROHIBIDO estrictamente lo siguiente:\n"
+        if body.blocked_topics:
+            user_prompt += f"- Temas bloqueados: {', '.join(body.blocked_topics)}\n"
+        if body.blocked_techs:
+            user_prompt += f"- Tecnologías bloqueadas: {', '.join(body.blocked_techs)}\n"
+        user_prompt += "Si la idea usa algo de esto, debes rechazarla inmediatamente.\n\n"
+
+    if body.similar_projects:
+        user_prompt += "Existen proyectos anteriores que se parecen mucho a esta idea:\n"
+        for p in body.similar_projects:
+            title = p.get("title", "Proyecto")
+            desc = p.get("description", "")
+            user_prompt += f"- {title}: {desc}\n"
+        user_prompt += "Advierte al alumno sobre el riesgo de similitud y pídele que innove más si se parece demasiado.\n\n"
+
+    user_prompt += (
+        "Da tu veredicto final indicando si la idea parece viable, "
+        "si requiere ajustes o si debe ser descartada por violar las reglas."
+    )
+
+    async def _do_generate():
+        if provider.lower() in ["groq", "grok"]:
+            from app.api.groq_client import generate_text_with_groq
+            try:
+                # Groq client is synchronous, so we use asyncio.to_thread if we want, or just call it directly.
+                # Actually generate_text_with_groq is synchronous, let's wrap it in to_thread.
+                response = await asyncio.to_thread(generate_text_with_groq, system_prompt, user_prompt)
+                return {"result": response}
+            except Exception as e:
+                logger.error(f"[validate-idea-quick] Error con Groq: {e}")
+                return {"result": "Error al evaluar la idea con Groq."}
+
+        if not ollama_client.check_health():
+            return {"result": "El motor de IA local no está disponible."}
+        try:
+            response = await ollama_client.generate(prompt=user_prompt, system_prompt=system_prompt, json_format=False)
+            return {"result": response}
+        except Exception as e:
+            logger.error(f"[validate-idea-quick] Error con Ollama: {e}")
+            return {"result": "Error al evaluar la idea con Ollama."}
+
+    return await llm_queue.enqueue(1, _do_generate())
