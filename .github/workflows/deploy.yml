@@ -1,6 +1,7 @@
 name: Deploy to Production (Main)
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
