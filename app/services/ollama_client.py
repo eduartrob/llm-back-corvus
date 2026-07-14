@@ -27,7 +27,7 @@ class OllamaClient:
         if model != self.model:
             raise ValueError(f"Modelo '{model}' no permitido. Solo se permite '{self.model}'.")
 
-    async def generate(self, prompt: str, system_prompt: str = "") -> str:
+    async def generate(self, prompt: str, system_prompt: str = "", json_format: bool = True) -> str:
         
         async with _semaphore:
             try:
@@ -35,9 +35,10 @@ class OllamaClient:
                     "model": self.model,
                     "prompt": prompt,
                     "stream": False,
-                    "format": "json",
                     "options": {"temperature": 0.2},
                 }
+                if json_format:
+                    payload["format"] = "json"
                 if system_prompt:
                     payload["system"] = system_prompt
 
