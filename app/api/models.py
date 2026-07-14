@@ -15,7 +15,7 @@ class AnalyzeProposalRequest(BaseModel):
 # sessionstart
 
 class StartSessionRequest(BaseModel):
-    user_id: str
+    team_id: str
     proposal_summary: str
     analysis_result: dict
 
@@ -30,6 +30,7 @@ class StartSessionResponse(BaseModel):
 class SessionMessageRequest(BaseModel):
     session_id: str
     user_message: str
+    student_name: Optional[str] = None
 
 class SessionMessageResponse(BaseModel):
     ai_message: str

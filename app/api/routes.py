@@ -166,13 +166,16 @@ async def start_session(
     x_user_data: Optional[str] = Header(None),
 ):
     
-    quota = quota_client.get_quota(body.user_id)
+    # quota_client.get_quota(body.team_id) could be changed to team-based quota later.
+    # For now, let's assume quota is handled at team level or bypass if needed.
+    # Using team_id for quota registration:
+    quota = quota_client.get_quota(body.team_id)
     if not quota["can_create"]:
         raise HTTPException(
             status_code=402,
             detail={
                 "error": "quota_exceeded",
-                "message": f"Has usado tus {quota['limit']} sesiones gratuitas de análisis IA. Actualiza tu plan para continuar.",
+                "message": f"El equipo ha usado sus {quota['limit']} sesiones gratuitas de análisis IA.",
                 "sessions_used": quota["sessions_used"],
                 "sessions_limit": quota["limit"],
             },
@@ -185,14 +188,14 @@ async def start_session(
     mode = "defense" if approved else "rejection"
 
     session = session_store.create(
-        user_id=body.user_id,
+        team_id=body.team_id,
         mode=mode,
         analysis_result=body.analysis_result,
         proposal_summary=body.proposal_summary,
     )
 
     quota_client.register_session(
-        user_id=body.user_id,
+        user_id=body.team_id,
         session_data={
             "session_id": session.session_id,
             "verdict": "approved" if approved else "rejected",
@@ -203,8 +206,8 @@ async def start_session(
 
     if mode == "defense":
         opening_prompt = (
-            "El alumno acaba de ver que su proyecto fue pre-aprobado. "
-            "Abre la sesión de defensa presentándote brevemente y lanzando tu primera pregunta difícil "
+            "El equipo acaba de ver que su proyecto fue pre-aprobado. "
+            "Abre la sesión de defensa presentándote brevemente al equipo y lanzando tu primera pregunta difícil "
             "sobre el punto más débil que identificas en el proyecto. Sé directo y específico. "
             "Recuerda incluir al final '[SCORE: 0/100]'."
         )
@@ -212,9 +215,9 @@ async def start_session(
         score = body.analysis_result.get("innovation_index", {}).get("score", 0)
         risk = body.analysis_result.get("semantic_collision_risk", {}).get("alert_type", "")
         opening_prompt = (
-            f"El alumno acaba de recibir el rechazo de su propuesta (score: {score}%, riesgo: {risk}). "
+            f"El equipo acaba de recibir el rechazo de su propuesta (score: {score}%, riesgo: {risk}). "
             "Abre la sesión presentándote como asesor constructivo, explica brevemente las razones principales del rechazo "
-            "y pregúntale qué parte le gustaría entender mejor primero."
+            "y pregúntales qué parte les gustaría entender mejor primero."
         )
 
     messages = session.to_ollama_messages()
@@ -251,7 +254,7 @@ async def session_message(body: SessionMessageRequest):
     if not ollama_client.check_health():
         raise HTTPException(status_code=503, detail="El motor de IA no está disponible en este momento.")
 
-    session.add_message("user", body.user_message)
+    session.add_message("user", body.user_message, body.student_name)
 
     full_messages = session.to_ollama_messages()
 

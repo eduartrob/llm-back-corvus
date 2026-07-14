@@ -15,13 +15,13 @@ class LlmSession:
     def __init__(
         self,
         session_id: str,
-        user_id: str,
+        team_id: str,
         mode: str,  # 'defense' | 'rejection'
         analysis_result: dict,
         proposal_summary: str,
     ):
         self.session_id = session_id
-        self.user_id = user_id
+        self.team_id = team_id
         self.mode = mode
         self.analysis_result = analysis_result
         self.proposal_summary = proposal_summary
@@ -45,7 +45,9 @@ class LlmSession:
     def to_ollama_messages(self) -> list[dict]:
         return [{"role": "system", "content": self.get_system_prompt()}] + self.messages
 
-    def add_message(self, role: str, content: str):
+    def add_message(self, role: str, content: str, student_name: Optional[str] = None):
+        if student_name and role == "user":
+            content = f"[{student_name}]: {content}"
         self.messages.append({"role": role, "content": content})
         self.last_activity = time.time()
 
@@ -62,7 +64,7 @@ class SessionStore:
 
     def create(
         self,
-        user_id: str,
+        team_id: str,
         mode: str,
         analysis_result: dict,
         proposal_summary: str,
@@ -70,14 +72,14 @@ class SessionStore:
         session_id = str(uuid.uuid4())
         session = LlmSession(
             session_id=session_id,
-            user_id=user_id,
+            team_id=team_id,
             mode=mode,
             analysis_result=analysis_result,
             proposal_summary=proposal_summary,
         )
         with self._lock:
             self._sessions[session_id] = session
-        logger.info(f"[SessionStore] Nueva sesión {session_id} para user {user_id} (modo: {mode})")
+        logger.info(f"[SessionStore] Nueva sesión {session_id} para team {team_id} (modo: {mode})")
         return session
 
     def get(self, session_id: str) -> Optional[LlmSession]:
