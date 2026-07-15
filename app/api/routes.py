@@ -527,7 +527,7 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
 
         if raw_response is None:
             if not ollama_client.check_health():
-                return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
+                return {"skills": []}
             try:
                 raw_response = await ollama_client.generate(
                     prompt=user_prompt,
@@ -535,7 +535,7 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
                 )
             except Exception as e:
                 logger.error(f"[generate-career-skills] Error con Ollama: {e}")
-                return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
+                return {"skills": []}
 
         try:
             cleaned = raw_response.strip()
@@ -553,7 +553,7 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
                 processed = [{"name": item.get("name", "Unknown"), "weight": item.get("weight", 5)} if isinstance(item, dict) else {"name": str(item), "weight": 5} for item in data["skills"]]
                 return {"skills": processed}
             else:
-                return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
+                return {"skills": []}
         except Exception as e:
             logger.error(f"[generate-career-skills] Parse error: {e}")
             import re
@@ -565,7 +565,7 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
                     return {"skills": processed}
                 except:
                     pass
-            return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
+            return {"skills": []}
 
     return await llm_queue.enqueue(3, _do_generate())
 
