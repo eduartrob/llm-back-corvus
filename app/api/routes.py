@@ -244,8 +244,8 @@ async def start_session(
     if mode == "defense":
         opening_prompt = (
             "El equipo acaba de ver que su proyecto fue pre-aprobado. "
-            "Abre la sesión de defensa presentándote brevemente al equipo y lanzando tu primera pregunta difícil "
-            "sobre el punto más débil que identificas en el proyecto. Sé directo y específico. "
+            "Abre la sesión presentándote estrictamente como la IA 'Corvus Evaluator' (NO inventes nombres humanos para ti) "
+            "y lanza tu primera pregunta difícil sobre el punto más débil que identificas en el proyecto. Sé directo y específico. "
             "Recuerda incluir al final '[SCORE: 0/100]'."
         )
     else:
@@ -253,8 +253,8 @@ async def start_session(
         risk = actual_analysis.get("semantic_collision_risk", {}).get("alert_type", "")
         opening_prompt = (
             f"El equipo acaba de recibir el rechazo de su propuesta (score: {score}%, riesgo: {risk}). "
-            "Abre la sesión presentándote como asesor constructivo, explica brevemente las razones principales del rechazo "
-            "y pregúntales qué parte les gustaría entender mejor primero."
+            "Abre la sesión presentándote estrictamente como la IA 'Corvus Advisor' (NO inventes nombres humanos para ti), "
+            "explica brevemente las razones principales del rechazo y pregúntales qué parte les gustaría entender mejor primero."
         )
 
     messages = session.to_ollama_messages()
