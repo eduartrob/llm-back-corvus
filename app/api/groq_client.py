@@ -54,3 +54,18 @@ def generate_text_with_groq(system_prompt: str, user_prompt: str) -> str:
         logger.error(f"[GroqClient] Error generando texto: {e}")
         raise e
 
+
+def chat_with_groq(messages: list[dict], temperature: float = 0.7) -> str:
+    try:
+        logger.info("[GroqClient] Iniciando chat con llama-3.3-70b-versatile...")
+        chat_completion = client.chat.completions.create(
+            messages=messages,
+            model="llama-3.3-70b-versatile",
+            temperature=temperature,
+            timeout=None,
+            max_tokens=2000
+        )
+        return chat_completion.choices[0].message.content
+    except Exception as e:
+        logger.error(f"[GroqClient] Error en chat: {e}")
+        raise e

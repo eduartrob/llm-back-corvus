@@ -24,6 +24,7 @@ from app.services.ollama_client import ollama_client
 from app.services.session_store import session_store
 from app.services.quota_client import quota_client
 from app.services.llm_queue import llm_queue
+from app.api.groq_client import chat_with_groq
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -225,7 +226,7 @@ async def start_session(
 
     async def _do_start_chat():
         try:
-            ai_opening = await ollama_client.chat(messages, temperature=0.6)
+            ai_opening = await asyncio.to_thread(chat_with_groq, messages, 0.6)
             session.add_message("assistant", ai_opening)
             return ai_opening
         except Exception as e:
@@ -260,7 +261,8 @@ async def session_message(body: SessionMessageRequest):
 
     async def _do_chat():
         try:
-            ai_response = await ollama_client.chat(full_messages, temperature=0.6)
+            ai_response = await asyncio.to_thread(chat_with_groq, full_messages, 0.7)
+            
             session.add_message("assistant", ai_response)
             return ai_response
         except Exception as e:
