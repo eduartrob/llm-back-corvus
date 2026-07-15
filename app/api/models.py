@@ -16,6 +16,7 @@ class AnalyzeProposalRequest(BaseModel):
 
 class StartSessionRequest(BaseModel):
     team_id: str
+    team_members: Optional[list[str]] = None
     proposal_summary: str
     analysis_result: dict
 

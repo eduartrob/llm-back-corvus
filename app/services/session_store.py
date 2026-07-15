@@ -19,12 +19,14 @@ class LlmSession:
         mode: str,  # 'defense' | 'rejection'
         analysis_result: dict,
         proposal_summary: str,
+        team_members: Optional[list[str]] = None,
     ):
         self.session_id = session_id
         self.team_id = team_id
         self.mode = mode
         self.analysis_result = analysis_result
         self.proposal_summary = proposal_summary
+        self.team_members = team_members
         self.messages: list[dict] = []
         self.created_at = datetime.utcnow().isoformat()
         self.last_activity = time.time()
@@ -37,8 +39,11 @@ class LlmSession:
             f"- Relevancia Técnica: {self.analysis_result.get('quality_metrics', {}).get('technical_relevance', 'N/A')}%\n"
             f"- Riesgo de Colisión: {self.analysis_result.get('semantic_collision_risk', {}).get('alert_type', 'N/A')}\n"
             f"- Dictamen: {self.analysis_result.get('verdict', 'N/A')}\n"
-            f"\nResumen del proyecto:\n{self.proposal_summary}"
+            f"\nResumen del proyecto:\n{self.proposal_summary}\n"
         )
+        if self.team_members:
+            analysis_context += f"\nMiembros del equipo: {', '.join(self.team_members)}\n"
+
         base = DEFENSE_SYSTEM_PROMPT if self.mode == "defense" else REJECTION_SYSTEM_PROMPT
         return base + analysis_context
 
@@ -63,12 +68,14 @@ class SessionStore:
         self._start_cleanup_thread()
 
     def create(
-        self,
-        team_id: str,
-        mode: str,
-        analysis_result: dict,
-        proposal_summary: str,
+        self, 
+        team_id: str, 
+        mode: str, 
+        analysis_result: dict, 
+        proposal_summary: str, 
+        team_members: Optional[list[str]] = None
     ) -> LlmSession:
+        
         session_id = str(uuid.uuid4())
         session = LlmSession(
             session_id=session_id,
@@ -76,6 +83,7 @@ class SessionStore:
             mode=mode,
             analysis_result=analysis_result,
             proposal_summary=proposal_summary,
+            team_members=team_members,
         )
         with self._lock:
             self._sessions[session_id] = session
