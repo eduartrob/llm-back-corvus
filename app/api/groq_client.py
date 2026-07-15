@@ -27,7 +27,8 @@ def analyze_with_groq(system_prompt: str, user_prompt: str) -> dict:
             ],
             model="llama-3.3-70b-versatile",
             response_format={"type": "json_object"},
-            timeout=30.0
+            timeout=30.0,
+            max_tokens=4000
         )
 
         response_text = chat_completion.choices[0].message.content
@@ -46,7 +47,8 @@ def generate_text_with_groq(system_prompt: str, user_prompt: str) -> str:
                 {"role": "user", "content": user_prompt}
             ],
             model="llama-3.3-70b-versatile",
-            timeout=30.0
+            timeout=30.0,
+            max_tokens=4000
         )
         return chat_completion.choices[0].message.content.strip()
     except Exception as e:

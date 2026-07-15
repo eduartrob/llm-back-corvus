@@ -35,7 +35,7 @@ class OllamaClient:
                     "model": self.model,
                     "prompt": prompt,
                     "stream": False,
-                    "options": {"temperature": 0.2},
+                    "options": {"temperature": 0.2, "num_predict": 4000},
                 }
                 if json_format:
                     payload["format"] = "json"
