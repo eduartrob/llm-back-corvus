@@ -99,6 +99,17 @@ class SessionStore:
                 return None
             return session
 
+    def get_by_team_id(self, team_id: str) -> Optional[LlmSession]:
+        with self._lock:
+            for sid, session in list(self._sessions.items()):
+                if session.team_id == team_id:
+                    if session.is_expired():
+                        del self._sessions[sid]
+                        logger.info(f"[SessionStore] Sesión {sid} expirada y eliminada.")
+                    else:
+                        return session
+            return None
+
     def _start_cleanup_thread(self):
         def cleanup():
             while True:

@@ -202,11 +202,29 @@ async def start_session(
     approved = actual_analysis.get("approved", False)
     mode = "defense" if approved else "rejection"
 
+    existing_session = session_store.get_by_team_id(body.team_id)
+    if existing_session:
+        logger.info(f"[session/start] Reutilizando sesión activa para team {body.team_id}")
+        ai_opening = ""
+        for m in existing_session.messages:
+            if m["role"] == "assistant":
+                ai_opening = m["content"]
+                break
+        
+        return StartSessionResponse(
+            session_id=existing_session.session_id,
+            mode=existing_session.mode,
+            ai_opening_message=ai_opening,
+            messages=existing_session.messages,
+            quota=quota,
+        )
+
     session = session_store.create(
         team_id=body.team_id,
         mode=mode,
         analysis_result=actual_analysis,
         proposal_summary=body.proposal_summary,
+        team_members=body.team_members,
     )
 
     quota_client.register_session(
@@ -228,6 +246,7 @@ async def start_session(
         )
     else:
         score = actual_analysis.get("innovation_index", {}).get("score", 0)
+    ai_opening = await llm_queue.enqueue(1, _do_start_chat())
         risk = actual_analysis.get("semantic_collision_risk", {}).get("alert_type", "")
         opening_prompt = (
             f"El equipo acaba de recibir el rechazo de su propuesta (score: {score}%, riesgo: {risk}). "
@@ -247,12 +266,13 @@ async def start_session(
             logger.error(f"[session/start] Error generando apertura: {e}")
             raise HTTPException(status_code=500, detail="Error generando el mensaje inicial de la IA.")
 
-    ai_opening = await llm_queue.enqueue(1, _do_start_chat())
+
 
     return StartSessionResponse(
         session_id=session.session_id,
         mode=mode,
         ai_opening_message=ai_opening,
+        messages=session.messages,
         quota=quota,
     )
 

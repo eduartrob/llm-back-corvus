@@ -24,6 +24,7 @@ class StartSessionResponse(BaseModel):
     session_id: str
     mode: str               # 'defense' | 'rejection'
     ai_opening_message: str
+    messages: Optional[list[dict]] = None
     quota: Optional[dict] = None
 
 # sessionmessage
