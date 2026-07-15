@@ -204,20 +204,24 @@ async def start_session(
 
     existing_session = session_store.get_by_team_id(body.team_id)
     if existing_session:
-        logger.info(f"[session/start] Reutilizando sesión activa para team {body.team_id}")
         ai_opening = ""
         for m in existing_session.messages:
             if m["role"] == "assistant":
                 ai_opening = m["content"]
                 break
         
-        return StartSessionResponse(
-            session_id=existing_session.session_id,
-            mode=existing_session.mode,
-            ai_opening_message=ai_opening,
-            messages=existing_session.messages,
-            quota=quota,
-        )
+        if ai_opening:
+            logger.info(f"[session/start] Reutilizando sesión activa para team {body.team_id}")
+            return StartSessionResponse(
+                session_id=existing_session.session_id,
+                mode=existing_session.mode,
+                ai_opening_message=ai_opening,
+                messages=existing_session.messages,
+                quota=quota,
+            )
+        else:
+            logger.warning(f"[session/start] Sesión {existing_session.session_id} encontrada pero sin historial. Se creará una nueva.")
+            session_store.delete(existing_session.session_id)
 
     session = session_store.create(
         team_id=body.team_id,
@@ -263,6 +267,7 @@ async def start_session(
             return ai_opening
         except Exception as e:
             logger.error(f"[session/start] Error generando apertura: {e}")
+            session_store.delete(session.session_id)
             raise HTTPException(status_code=500, detail="Error generando el mensaje inicial de la IA.")
 
     ai_opening = await llm_queue.enqueue(1, _do_start_chat())

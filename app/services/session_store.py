@@ -110,6 +110,12 @@ class SessionStore:
                         return session
             return None
 
+    def delete(self, session_id: str):
+        with self._lock:
+            if session_id in self._sessions:
+                del self._sessions[session_id]
+                logger.info(f"[SessionStore] Sesión {session_id} eliminada manualmente.")
+
     def _start_cleanup_thread(self):
         def cleanup():
             while True:

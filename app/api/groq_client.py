@@ -12,7 +12,7 @@ client = Groq(api_key=settings.GROQ_API_KEY)
 
 def analyze_with_groq(system_prompt: str, user_prompt: str) -> dict:
     try:
-        logger.info("[GroqClient] Iniciando análisis con llama-3.3-70b-versatile...")
+        logger.info("[GroqClient] Iniciando análisis con llama-3.1-8b-instant...")
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -24,7 +24,7 @@ def analyze_with_groq(system_prompt: str, user_prompt: str) -> dict:
                     "content": user_prompt
                 }
             ],
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             response_format={"type": "json_object"},
             timeout=None,
             max_tokens=4000
@@ -39,13 +39,13 @@ def analyze_with_groq(system_prompt: str, user_prompt: str) -> dict:
 def generate_text_with_groq(system_prompt: str, user_prompt: str) -> str:
     """Llama a Groq y devuelve texto plano (sin JSON). Útil para generar nombres cortos."""
     try:
-        logger.info("[GroqClient] Generando texto con llama-3.3-70b-versatile...")
+        logger.info("[GroqClient] Generando texto con llama-3.1-8b-instant...")
         chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             timeout=None,
             max_tokens=4000
         )
@@ -57,10 +57,10 @@ def generate_text_with_groq(system_prompt: str, user_prompt: str) -> str:
 
 def chat_with_groq(messages: list[dict], temperature: float = 0.7) -> str:
     try:
-        logger.info("[GroqClient] Iniciando chat con llama-3.3-70b-versatile...")
+        logger.info("[GroqClient] Iniciando chat con llama-3.1-8b-instant...")
         chat_completion = client.chat.completions.create(
             messages=messages,
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             temperature=temperature,
             timeout=None,
             max_tokens=2000
