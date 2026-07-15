@@ -246,7 +246,6 @@ async def start_session(
         )
     else:
         score = actual_analysis.get("innovation_index", {}).get("score", 0)
-    ai_opening = await llm_queue.enqueue(1, _do_start_chat())
         risk = actual_analysis.get("semantic_collision_risk", {}).get("alert_type", "")
         opening_prompt = (
             f"El equipo acaba de recibir el rechazo de su propuesta (score: {score}%, riesgo: {risk}). "
@@ -266,7 +265,7 @@ async def start_session(
             logger.error(f"[session/start] Error generando apertura: {e}")
             raise HTTPException(status_code=500, detail="Error generando el mensaje inicial de la IA.")
 
-
+    ai_opening = await llm_queue.enqueue(1, _do_start_chat())
 
     return StartSessionResponse(
         session_id=session.session_id,
