@@ -13,7 +13,6 @@ client = Groq(api_key=settings.GROQ_API_KEY)
 def analyze_with_groq(system_prompt: str, user_prompt: str) -> dict:
     try:
         logger.info("[GroqClient] Iniciando análisis con llama-3.3-70b-versatile...")
-        # Timeout de 2 segundos según lo solicitado (Groq es rápido, 2s para failover rápido)
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -27,7 +26,7 @@ def analyze_with_groq(system_prompt: str, user_prompt: str) -> dict:
             ],
             model="llama-3.3-70b-versatile",
             response_format={"type": "json_object"},
-            timeout=30.0,
+            timeout=None,
             max_tokens=4000
         )
 
@@ -47,7 +46,7 @@ def generate_text_with_groq(system_prompt: str, user_prompt: str) -> str:
                 {"role": "user", "content": user_prompt}
             ],
             model="llama-3.3-70b-versatile",
-            timeout=30.0,
+            timeout=None,
             max_tokens=4000
         )
         return chat_completion.choices[0].message.content.strip()
