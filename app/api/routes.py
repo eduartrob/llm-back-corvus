@@ -44,6 +44,18 @@ from app.core.prompts import (
     build_rag_summary_prompt
 )
 
+def _enforce_approved_flag(result: dict) -> dict:
+    if "approved" not in result or not isinstance(result["approved"], bool):
+        score = result.get("innovation_index", {}).get("score", 0)
+        quality = result.get("quality_metrics", {})
+        academic = quality.get("academic_rigor", 0)
+        technical = quality.get("technical_relevance", 0)
+        
+        avg_quality = (academic + technical) / 2
+        
+        result["approved"] = score >= 70 and avg_quality >= 70
+    return result
+
 @router.get("/health")
 async def health():
     ollama_ok = ollama_client.check_health()
@@ -120,7 +132,7 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
             try:
                 logger.info("[analyze-proposal] Intentando usar GroqCloud...")
                 result = await asyncio.to_thread(analyze_with_groq, groq_system, groq_user)
-                return result
+                return _enforce_approved_flag(result)
             except Exception as e:
                 logger.warning(f"[analyze-proposal] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
 
@@ -150,7 +162,7 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
                 cleaned_response = cleaned_response[:-3]
                 
             result = json.loads(cleaned_response)
-            return result
+            return _enforce_approved_flag(result)
         except json.JSONDecodeError:
             logger.error(f"[analyze-proposal] Ollama no devolvió JSON válido: {raw_response}")
             raise HTTPException(status_code=500, detail="El modelo no devolvió un formato válido.")
