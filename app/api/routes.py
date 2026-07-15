@@ -197,13 +197,15 @@ async def start_session(
     if not ollama_client.check_health():
         raise HTTPException(status_code=503, detail="El motor de IA no está disponible en este momento.")
 
-    approved = body.analysis_result.get("approved", False)
+    actual_analysis = body.analysis_result.get("ollama_analysis", body.analysis_result)
+    
+    approved = actual_analysis.get("approved", False)
     mode = "defense" if approved else "rejection"
 
     session = session_store.create(
         team_id=body.team_id,
         mode=mode,
-        analysis_result=body.analysis_result,
+        analysis_result=actual_analysis,
         proposal_summary=body.proposal_summary,
     )
 
@@ -213,7 +215,7 @@ async def start_session(
             "session_id": session.session_id,
             "verdict": "approved" if approved else "rejected",
             "proposal_summary": body.proposal_summary[:500],
-            "analysis_json": body.analysis_result,
+            "analysis_json": actual_analysis,
         },
     )
 
@@ -225,8 +227,8 @@ async def start_session(
             "Recuerda incluir al final '[SCORE: 0/100]'."
         )
     else:
-        score = body.analysis_result.get("innovation_index", {}).get("score", 0)
-        risk = body.analysis_result.get("semantic_collision_risk", {}).get("alert_type", "")
+        score = actual_analysis.get("innovation_index", {}).get("score", 0)
+        risk = actual_analysis.get("semantic_collision_risk", {}).get("alert_type", "")
         opening_prompt = (
             f"El equipo acaba de recibir el rechazo de su propuesta (score: {score}%, riesgo: {risk}). "
             "Abre la sesión presentándote como asesor constructivo, explica brevemente las razones principales del rechazo "
