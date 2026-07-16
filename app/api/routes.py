@@ -295,7 +295,8 @@ async def session_message(body: SessionMessageRequest):
 
     session.add_message("user", body.user_message, body.student_name)
 
-    full_messages = session.to_ollama_messages()
+    # Use reminder-injected messages to prevent context drift / name hallucination
+    full_messages = session.to_messages_with_reminder()
 
     async def _do_chat():
         try:

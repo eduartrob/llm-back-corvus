@@ -50,6 +50,54 @@ class LlmSession:
     def to_ollama_messages(self) -> list[dict]:
         return [{"role": "system", "content": self.get_system_prompt()}] + self.messages
 
+    def to_messages_with_reminder(self) -> list[dict]:
+        """Build the messages list with an inline reminder injected before the last user message.
+        This fights 'context drift' where the model forgets its rules after many turns.
+        The reminder re-asserts the MOST critical constraint (names) right before the model responds."""
+        base = [{"role": "system", "content": self.get_system_prompt()}]
+        history = list(self.messages)  # copy
+
+        if not history:
+            return base
+
+        # Find the last user message to inject the reminder before it
+        last_user_idx = None
+        for i in range(len(history) - 1, -1, -1):
+            if history[i]["role"] == "user":
+                last_user_idx = i
+                break
+
+        if last_user_idx is None:
+            return base + history
+
+        # Build the reminder content dynamically using actual team member names
+        if self.team_members and len(self.team_members) > 0:
+            names_str = ", ".join(self.team_members)
+            member_count = len(self.team_members)
+            if member_count == 1:
+                member_rule = f"La defensa es INDIVIDUAL. El único estudiante es: {names_str}. Dirígete SOLO a esta persona."
+            else:
+                member_rule = f"Los {member_count} estudiantes del equipo son EXCLUSIVAMENTE: {names_str}. Dirígete SOLO a estos nombres."
+        else:
+            member_rule = "No menciones nombres de estudiantes que no hayas visto en el historial de mensajes."
+
+        reminder = (
+            f"[RECORDATORIO INTERNO - NO LO MUESTRES AL USUARIO] "
+            f"{member_rule} "
+            f"NUNCA inventes ni uses nombres que NO estén en esa lista. "
+            f"NUNCA simules ni escribas respuestas de los estudiantes. "
+            f"Tu rol es únicamente el de EVALUADOR."
+        )
+
+        # Inject reminder as a system message right before the last user message
+        messages_with_reminder = (
+            history[:last_user_idx]
+            + [{"role": "system", "content": reminder}]
+            + history[last_user_idx:]
+        )
+
+        return base + messages_with_reminder
+
     def add_message(self, role: str, content: str, student_name: Optional[str] = None):
         if student_name and role == "user":
             content = f"[{student_name}]: {content}"
