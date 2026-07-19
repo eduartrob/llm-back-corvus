@@ -12,10 +12,33 @@ client = Groq(api_key=settings.GROQ_API_KEY)
 
 FALLBACK_MODELS = [
     "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b"
 ]
+
+import threading
+_rr_lock = threading.Lock()
+_rr_index = 0
+
+def get_models_to_try(requested_model: str) -> list[str]:
+    global _rr_index
+    
+    # Si el modelo solicitado NO está en la lista pesada (ej: llama-3.1-8b-instant para chat),
+    # lo intentamos primero, y si falla usamos la lista pesada como respaldo normal.
+    if requested_model not in FALLBACK_MODELS:
+        return [requested_model] + [m for m in FALLBACK_MODELS]
+        
+    # Si es uno de los modelos pesados, hacemos Round-Robin (1, 2, 3, 1, 2, 3...)
+    with _rr_lock:
+        start_idx = _rr_index
+        _rr_index = (_rr_index + 1) % len(FALLBACK_MODELS)
+        
+    rotation = []
+    for i in range(len(FALLBACK_MODELS)):
+        idx = (start_idx + i) % len(FALLBACK_MODELS)
+        rotation.append(FALLBACK_MODELS[idx])
+        
+    return rotation
 
 def list_groq_models() -> list[dict]:
     try:
@@ -27,7 +50,7 @@ def list_groq_models() -> list[dict]:
         return [{"id": m, "owned_by": "fallback"} for m in FALLBACK_MODELS]
 
 def analyze_with_groq(system_prompt: str, user_prompt: str, groq_model: str = "llama-3.1-8b-instant") -> dict:
-    models_to_try = [groq_model] + [m for m in FALLBACK_MODELS if m != groq_model]
+    models_to_try = get_models_to_try(groq_model)
     
     for i, model in enumerate(models_to_try):
         try:
@@ -57,7 +80,7 @@ def analyze_with_groq(system_prompt: str, user_prompt: str, groq_model: str = "l
 
 def generate_text_with_groq(system_prompt: str, user_prompt: str, groq_model: str = "llama-3.1-8b-instant") -> str:
     """Llama a Groq y devuelve texto plano (sin JSON). Útil para generar nombres cortos."""
-    models_to_try = [groq_model] + [m for m in FALLBACK_MODELS if m != groq_model]
+    models_to_try = get_models_to_try(groq_model)
     
     for i, model in enumerate(models_to_try):
         try:
@@ -84,7 +107,7 @@ def generate_text_with_groq(system_prompt: str, user_prompt: str, groq_model: st
             raise e
 
 def chat_with_groq(messages: list[dict], temperature: float = 0.7, groq_model: str = "llama-3.1-8b-instant") -> str:
-    models_to_try = [groq_model] + [m for m in FALLBACK_MODELS if m != groq_model]
+    models_to_try = get_models_to_try(groq_model)
     for i, model in enumerate(models_to_try):
         try:
             logger.info(f"[GroqClient] Iniciando chat con {model}...")
