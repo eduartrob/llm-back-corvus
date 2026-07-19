@@ -1,4 +1,4 @@
-import json
+esimport json
 import logging
 import asyncio
 from fastapi import APIRouter, HTTPException, Header
@@ -33,6 +33,7 @@ class BlueOceanRequest(BaseModel):
     title: str
     description: str
     category: str
+    groq_model: Optional[str] = "llama-3.1-8b-instant"
 
 # prompt de analisis de propuesta reutilizado del clustering service
 
@@ -65,6 +66,15 @@ async def health():
         "ollama": "connected" if ollama_ok else "unreachable",
         "model": ollama_client.model,
     }
+
+@router.get("/groq-models")
+async def get_groq_models():
+    from app.api.groq_client import list_groq_models
+    try:
+        models = await asyncio.to_thread(list_groq_models)
+        return {"status": "success", "data": models}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/analyze-blue-ocean")
 async def analyze_blue_ocean(body: BlueOceanRequest):
@@ -105,18 +115,31 @@ async def analyze_blue_ocean(body: BlueOceanRequest):
 
 
 
+# ── Almacén de diagnóstico para el último prompt enviado ─────────────────
+_last_prompt_debug = {}
+
 @router.post("/analyze-proposal")
 async def analyze_proposal(body: AnalyzeProposalRequest):
     async def _do_analysis():
         context_text = ""
         for i, proj in enumerate(body.similar_projects):
             sim_pct = proj.get("similarity_pct", 0)
+            content = proj.get('content', '')
+            # Truncar contenido de similares a 400 chars para no saturar el prompt
+            content_truncated = content[:400] + "..." if len(content) > 400 else content
             context_text += (
                 f"\n--- Proyecto Existente {i+1} ---\n"
                 f"Título: {proj.get('title', 'Desconocido')}\n"
-                f"Similitud Matemática (ChromaDB): {sim_pct:.1f}%\n"
-                f"Contenido: {proj.get('content', '')}\n"
+                f"Similitud Matemática (Qdrant): {sim_pct:.1f}%\n"
+                f"Fragmento donde se solapa: {content_truncated}\n"
             )
+        
+        logger.info(
+            f"[analyze-proposal] Recibido: proposal_text={len(body.proposal_text)} chars, "
+            f"similar_projects={len(body.similar_projects)}, "
+            f"max_sim_pct={body.max_sim_pct}, risk_level={body.risk_level}, "
+            f"provider={body.provider}"
+        )
 
         groq_system, groq_user = build_groq_analysis_prompt(
             proposal_text=body.proposal_text,
@@ -130,8 +153,23 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
         if body.provider == "groq":
             from app.api.groq_client import analyze_with_groq
             try:
-                logger.info("[analyze-proposal] Intentando usar GroqCloud...")
-                result = await asyncio.to_thread(analyze_with_groq, groq_system, groq_user)
+                logger.info(
+                    f"[analyze-proposal] Enviando a Groq: system_prompt={len(groq_system)} chars, "
+                    f"user_prompt={len(groq_user)} chars, model={body.groq_model}"
+                )
+                # Guardar para diagnóstico
+                global _last_prompt_debug
+                _last_prompt_debug = {
+                    "provider": "groq",
+                    "model": body.groq_model,
+                    "system_prompt_len": len(groq_system),
+                    "user_prompt_len": len(groq_user),
+                    "system_preview": groq_system[:300],
+                    "user_preview": groq_user[:500],
+                    "timestamp": str(__import__('datetime').datetime.now()),
+                }
+                result = await asyncio.to_thread(analyze_with_groq, groq_system, groq_user, body.groq_model)
+                logger.info(f"[analyze-proposal] Groq respondió exitosamente con modelo: {result.get('actual_model_used', 'desconocido')}")
                 return _enforce_approved_flag(result)
             except Exception as e:
                 logger.warning(f"[analyze-proposal] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
@@ -150,10 +188,26 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
         )
 
         try:
+            logger.info(
+                f"[analyze-proposal] Enviando a Ollama: system_prompt={len(ollama_system)} chars, "
+                f"user_prompt={len(ollama_user)} chars"
+            )
+            # Guardar para diagnóstico
+            global _last_prompt_debug
+            _last_prompt_debug = {
+                "provider": "ollama",
+                "model": ollama_client.model,
+                "system_prompt_len": len(ollama_system),
+                "user_prompt_len": len(ollama_user),
+                "system_preview": ollama_system[:300],
+                "user_preview": ollama_user[:500],
+                "timestamp": str(__import__('datetime').datetime.now()),
+            }
             raw_response = await ollama_client.generate(
                 prompt=ollama_user,
                 system_prompt=ollama_system
             )
+            logger.info(f"[analyze-proposal] Ollama respondió: {len(raw_response)} chars")
             
             cleaned_response = raw_response.strip()
             if cleaned_response.startswith("```json"):
@@ -300,7 +354,7 @@ async def session_message(body: SessionMessageRequest):
 
     async def _do_chat():
         try:
-            ai_response = await asyncio.to_thread(chat_with_groq, full_messages, 0.7)
+            ai_response = await asyncio.to_thread(chat_with_groq, full_messages, 0.7, body.groq_model)
             
             session.add_message("assistant", ai_response)
             return ai_response
@@ -336,9 +390,9 @@ async def generate_name(body: GenerateNameRequest):
         if body.provider == "groq":
             try:
                 from app.api.groq_client import generate_text_with_groq
-                logger.info("[generate-name] Intentando con Groq...")
+                logger.info(f"[generate-name] Intentando con Groq usando {body.groq_model}...")
                 raw_response = await asyncio.to_thread(
-                    generate_text_with_groq, system_prompt, body.prompt
+                    generate_text_with_groq, system_prompt, body.prompt, body.groq_model
                 )
             except Exception as e:
                 logger.warning(f"[generate-name] Groq falló ({e}). Failover a Ollama...")
@@ -383,9 +437,9 @@ async def generate_rag_summary(body: GenerateRAGSummaryRequest):
         if body.provider == "groq":
             try:
                 from app.api.groq_client import generate_text_with_groq
-                logger.info("[generate-rag-summary] Intentando con Groq...")
+                logger.info(f"[generate-rag-summary] Intentando con Groq usando {body.groq_model}...")
                 raw_response = await asyncio.to_thread(
-                    generate_text_with_groq, system_prompt, user_prompt
+                    generate_text_with_groq, system_prompt, user_prompt, body.groq_model
                 )
             except Exception as e:
                 logger.warning(f"[generate-rag-summary] Groq falló ({e}). Failover a Ollama...")
@@ -450,9 +504,9 @@ async def analyze_homework(body: AnalyzeHomeworkRequest):
         if body.provider == "groq":
             try:
                 from app.api.groq_client import analyze_with_groq
-                logger.info("[analyze-homework] Intentando con Groq...")
+                logger.info(f"[analyze-homework] Intentando con Groq usando {body.groq_model}...")
                 raw_response = await asyncio.to_thread(
-                    analyze_with_groq, system_prompt, user_prompt
+                    analyze_with_groq, system_prompt, user_prompt, body.groq_model
                 )
             except Exception as e:
                 logger.warning(f"[analyze-homework] Groq falló ({e}). Failover a Ollama...")
@@ -559,9 +613,9 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
         if body.provider == "groq":
             try:
                 from app.api.groq_client import generate_text_with_groq
-                logger.info(f"[generate-career-skills] Intentando con Groq para {body.career_name}...")
+                logger.info(f"[generate-career-skills] Intentando con Groq para {body.career_name} usando {body.groq_model}...")
                 raw_response = await asyncio.to_thread(
-                    generate_text_with_groq, system_prompt, user_prompt
+                    generate_text_with_groq, system_prompt, user_prompt, body.groq_model
                 )
             except Exception as e:
                 logger.warning(f"[generate-career-skills] Groq falló ({e}). Failover a Ollama...")
@@ -654,7 +708,7 @@ async def validate_idea_quick(body: ValidateIdeaQuickRequest):
             try:
                 # Groq client is synchronous, so we use asyncio.to_thread if we want, or just call it directly.
                 # Actually generate_text_with_groq is synchronous, let's wrap it in to_thread.
-                response = await asyncio.to_thread(generate_text_with_groq, system_prompt, user_prompt)
+                response = await asyncio.to_thread(generate_text_with_groq, system_prompt, user_prompt, body.groq_model)
                 return {"result": response}
             except Exception as e:
                 logger.error(f"[validate-idea-quick] Error con Groq: {e}")
@@ -670,3 +724,21 @@ async def validate_idea_quick(body: ValidateIdeaQuickRequest):
             return {"result": "Error al evaluar la idea con Ollama."}
 
     return await llm_queue.enqueue(1, _do_generate())
+
+@router.get("/session/{session_id}/messages")
+async def get_session_messages(session_id: str):
+    existing_session = session_store.get(session_id)
+    if not existing_session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada.")
+    return {"messages": existing_session.messages}
+
+@router.get("/debug-last-prompt")
+async def debug_last_prompt():
+    """
+    Endpoint de diagnóstico: devuelve el último prompt enviado a Groq/Ollama
+    con tamaños y previews. No ejecuta nada, solo inspecciona.
+    """
+    return {
+        "status": "ok",
+        "last_prompt": _last_prompt_debug if _last_prompt_debug else {"message": "No se ha enviado ningún prompt todavía."}
+    }

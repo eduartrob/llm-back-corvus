@@ -35,7 +35,7 @@ class OllamaClient:
                     "model": self.model,
                     "prompt": prompt,
                     "stream": False,
-                    "options": {"temperature": 0.2, "num_predict": 4000},
+                    "options": {"temperature": 0.2, "num_predict": 1500},
                 }
                 if json_format:
                     payload["format"] = "json"
@@ -46,7 +46,7 @@ class OllamaClient:
                     requests.post,
                     f"{self.host}/api/generate",
                     json=payload,
-                    timeout=900,
+                    timeout=180,
                 )
                 response.raise_for_status()
                 data = response.json()
