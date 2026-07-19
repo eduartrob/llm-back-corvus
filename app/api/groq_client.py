@@ -11,9 +11,10 @@ from app.config import settings
 client = Groq(api_key=settings.GROQ_API_KEY)
 
 FALLBACK_MODELS = [
-    "llama-3.1-8b-instant",
     "llama-3.3-70b-versatile",
-    "mixtral-8x7b-32768"
+    "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b"
 ]
 
 def list_groq_models() -> list[dict]:
