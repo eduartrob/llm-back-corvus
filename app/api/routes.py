@@ -122,6 +122,7 @@ _last_prompt_debug = {}
 async def analyze_proposal(body: AnalyzeProposalRequest):
     async def _do_analysis():
         context_text = ""
+        global _last_prompt_debug
         for i, proj in enumerate(body.similar_projects):
             sim_pct = proj.get("similarity_pct", 0)
             content = proj.get('content', '')
@@ -158,7 +159,6 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
                     f"user_prompt={len(groq_user)} chars, model={body.groq_model}"
                 )
                 # Guardar para diagnóstico
-                global _last_prompt_debug
                 _last_prompt_debug = {
                     "provider": "groq",
                     "model": body.groq_model,
@@ -193,7 +193,6 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
                 f"user_prompt={len(ollama_user)} chars"
             )
             # Guardar para diagnóstico
-            global _last_prompt_debug
             _last_prompt_debug = {
                 "provider": "ollama",
                 "model": ollama_client.model,
