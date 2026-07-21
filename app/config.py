@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     PORT: int = 3003
 
     GROQ_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
     
     class Config:
         env_file = ".env"
