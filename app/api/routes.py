@@ -111,7 +111,8 @@ async def analyze_blue_ocean(body: BlueOceanRequest):
         user_prompt = build_blue_ocean_user_prompt(body.title, summary_text, body.category)
         
         try:
-            result = generate_gemini_json(system_prompt, user_prompt)
+            from app.config import settings
+            result = await generate_gemini_json(system_prompt, user_prompt, settings.GEMINI_API_KEY)
             if result:
                 return result
             else:

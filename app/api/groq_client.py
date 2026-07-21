@@ -30,9 +30,10 @@ def analyze_with_groq(system_prompt: str, user_prompt: str, groq_model: str = "l
     for i, model in enumerate(models_to_try):
         try:
             logger.info(f"[GroqClient] Iniciando análisis con {model}...")
+            system_prompt_json = system_prompt + "\n\nCRITICAL INSTRUCTION: You MUST format your response as a valid JSON object."
             chat_completion = client.chat.completions.create(
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": system_prompt_json},
                     {"role": "user", "content": user_prompt}
                 ],
                 model=model,
