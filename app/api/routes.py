@@ -85,9 +85,9 @@ async def analyze_blue_ocean(body: BlueOceanRequest):
         # Intentar con Groq primero
         try:
             from app.api.groq_client import analyze_with_groq
-            logger.info("[analyze-blue-ocean] Intentando usar GroqCloud...")
+            logger.info("[analyze-blue-ocean] Intentando usar GroqCloud con Llama 70B...")
             # analyze_with_groq es síncrona, ejecutamos en hilo
-            result = await asyncio.to_thread(analyze_with_groq, system_prompt, user_prompt)
+            result = await asyncio.to_thread(analyze_with_groq, system_prompt, user_prompt, "llama-3.3-70b-versatile")
             return result
         except Exception as e:
             logger.warning(f"[analyze-blue-ocean] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
