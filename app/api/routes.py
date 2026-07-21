@@ -385,8 +385,20 @@ async def generate_name(body: GenerateNameRequest):
     async def _do_generate():
         raw_response = None
 
-        # Intentar con el proveedor configurado
-        if body.provider == "groq":
+        # Intentar con Gemini primero para nombres (gratis, alto rate limit, menos repeticiones)
+        try:
+            from app.api.gemini_client import generate_text_with_gemini
+            from app.config import settings
+            logger.info("[generate-name] Intentando con Gemini...")
+            gemini_key = getattr(settings, "GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+            if not gemini_key:
+                 raise Exception("GEMINI_API_KEY no está configurada")
+            raw_response = await generate_text_with_gemini(system_prompt, body.prompt, api_key=gemini_key)
+        except Exception as e:
+            logger.warning(f"[generate-name] Gemini falló ({e}). Failover a Groq/Ollama...")
+
+        # Si Gemini falló, intentar con el proveedor configurado
+        if raw_response is None and body.provider == "groq":
             try:
                 from app.api.groq_client import generate_text_with_groq
                 logger.info(f"[generate-name] Intentando con Groq usando {body.groq_model}...")
