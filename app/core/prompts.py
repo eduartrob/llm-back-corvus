@@ -43,12 +43,14 @@ Responde siempre en español. Sé empático pero directo. Máximo 3 párrafos po
 BLUE_OCEAN_SYSTEM_PROMPT = "Eres un experto analista de datos e investigador académico. Genera un análisis JSON detallado para un tema de Océano Azul."
 
 def build_blue_ocean_user_prompt(title: str, description: str, category: str) -> str:
-    return f"""Analiza este nicho de océano azul (baja colisión semántica).
-Título: {title}
+    return f"""Analiza este nicho (baja colisión semántica).
+Título Base: {title}
 Descripción (Resumen procesado): {description}
 Categoría: {category}
 
-Genera un JSON con tres sugerencias de innovación, un hallazgo principal, y métricas. Extrae un título oficial atractivo.
+Genera un JSON con tres sugerencias de innovación, un hallazgo principal, y métricas. 
+REGLA ESTRICTA: El "titulo_propuesta" DEBE SER ÚNICAMENTE el nombre formal, conciso y académico del proyecto. ESTÁ PROHIBIDO incluir frases como "Baja colisión semántica", "Nicho inexplorado", "Océano Azul", o similares en el título.
+
 Estructura JSON estricta (no uses backticks):
 {{
     "titulo_propuesta": "string",
