@@ -24,6 +24,7 @@ from app.services.ollama_client import ollama_client
 from app.services.session_store import session_store
 from app.services.quota_client import quota_client
 from app.services.llm_queue import llm_queue
+from app.api.groq_client import chat_with_groq
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class BlueOceanRequest(BaseModel):
     title: str
     description: str
     category: str
+    groq_model: Optional[str] = "llama-3.1-8b-instant"
 
 # prompt de analisis de propuesta reutilizado del clustering service
 
@@ -40,8 +42,22 @@ from app.core.prompts import (
     build_blue_ocean_user_prompt,
     build_groq_analysis_prompt,
     build_ollama_analysis_prompt,
-    build_rag_summary_prompt
+    build_rag_summary_prompt,
+    GROQ_8B_SUMMARY_SYSTEM_PROMPT,
+    build_groq_8b_summary_prompt
 )
+
+def _enforce_approved_flag(result: dict) -> dict:
+    if "approved" not in result or not isinstance(result["approved"], bool):
+        score = result.get("innovation_index", {}).get("score", 0)
+        quality = result.get("quality_metrics", {})
+        academic = quality.get("academic_rigor", 0)
+        technical = quality.get("technical_relevance", 0)
+        
+        avg_quality = (academic + technical) / 2
+        
+        result["approved"] = score >= 70 and avg_quality >= 70
+    return result
 
 @router.get("/health")
 async def health():
@@ -53,38 +69,73 @@ async def health():
         "model": ollama_client.model,
     }
 
+@router.get("/groq-models")
+async def get_groq_models():
+    from app.api.groq_client import list_groq_models
+    try:
+        models = await asyncio.to_thread(list_groq_models)
+        return {"status": "success", "data": models}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/analyze-blue-ocean")
 async def analyze_blue_ocean(body: BlueOceanRequest):
     async def _do_analysis():
-        system_prompt = BLUE_OCEAN_SYSTEM_PROMPT
-        user_prompt = build_blue_ocean_user_prompt(body.title, body.description, body.category)
+        from app.api.groq_client import analyze_with_groq
+        from app.api.gemini_client import generate_gemini_json
         
-        # Intentar con Groq primero
+        # PASO 1: Groq 8B para resumir y limpiar el texto
+        logger.info("[analyze-blue-ocean] PASO 1: Resumiendo con Groq 8B...")
         try:
-            from app.api.groq_client import analyze_with_groq
-            logger.info("[analyze-blue-ocean] Intentando usar GroqCloud...")
-            # analyze_with_groq es síncrona, ejecutamos en hilo
-            result = await asyncio.to_thread(analyze_with_groq, system_prompt, user_prompt)
-            return result
-        except Exception as e:
-            logger.warning(f"[analyze-blue-ocean] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
+            summary_system = GROQ_8B_SUMMARY_SYSTEM_PROMPT
+            summary_user = build_groq_8b_summary_prompt(body.description)
             
-        # Fallback a Ollama
-        if not ollama_client.check_health():
-            raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+            raw_summary = await asyncio.to_thread(
+                analyze_with_groq, 
+                summary_system, 
+                summary_user, 
+                "llama-3.1-8b-instant"
+            )
+            # Extraer el texto de la respuesta (puede venir en JSON si analyze_with_groq fuerza JSON, pero asumimos texto si falla)
+            if isinstance(raw_summary, dict):
+                summary_text = json.dumps(raw_summary)
+            else:
+                summary_text = str(raw_summary)
+        except Exception as e:
+            logger.warning(f"[analyze-blue-ocean] Falló el resumen con Groq 8B ({e}). Usando texto original (truncado).")
+            summary_text = body.description[:2000]
 
+        # PASO 2: Gemini para generar el JSON estructurado del Océano Azul
+        logger.info("[analyze-blue-ocean] PASO 2: Generando análisis con Gemini...")
+        system_prompt = BLUE_OCEAN_SYSTEM_PROMPT
+        user_prompt = build_blue_ocean_user_prompt(body.title, summary_text, body.category)
+        
         try:
-            raw_response = await ollama_client.generate(prompt=user_prompt, system_prompt=system_prompt)
-            
-            cleaned_response = raw_response.strip()
-            if cleaned_response.startswith("```json"):
-                cleaned_response = cleaned_response[7:]
-            if cleaned_response.endswith("```"):
-                cleaned_response = cleaned_response[:-3]
-                
-            return json.loads(cleaned_response)
+            from app.config import settings
+            result = await generate_gemini_json(system_prompt, user_prompt, settings.GEMINI_API_KEY)
+            if result:
+                return result
+            else:
+                raise Exception("Gemini retornó un resultado nulo")
         except Exception as e:
-            logger.error(f"[analyze-blue-ocean] Error con Ollama: {e}")
+            logger.warning(f"[analyze-blue-ocean] Falló Gemini ({e}). Haciendo failover a Ollama local...")
+            
+            # Fallback a Ollama si falla Gemini
+            if not ollama_client.check_health():
+                raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+
+            try:
+                raw_response = await ollama_client.generate(prompt=user_prompt, system_prompt=system_prompt)
+                
+                cleaned_response = raw_response.strip()
+                if cleaned_response.startswith("```json"):
+                    cleaned_response = cleaned_response[7:]
+                if cleaned_response.endswith("```"):
+                    cleaned_response = cleaned_response[:-3]
+                    
+                return json.loads(cleaned_response)
+            except Exception as oe:
+                logger.error(f"[analyze-blue-ocean] Error con Ollama: {oe}")
             raise HTTPException(status_code=503, detail="El motor de IA (Ollama) falló al procesar la solicitud.")
 
     # Prioridad baja (10) para tareas de fondo
@@ -92,18 +143,32 @@ async def analyze_blue_ocean(body: BlueOceanRequest):
 
 
 
+# ── Almacén de diagnóstico para el último prompt enviado ─────────────────
+_last_prompt_debug = {}
+
 @router.post("/analyze-proposal")
 async def analyze_proposal(body: AnalyzeProposalRequest):
     async def _do_analysis():
         context_text = ""
+        global _last_prompt_debug
         for i, proj in enumerate(body.similar_projects):
             sim_pct = proj.get("similarity_pct", 0)
+            content = proj.get('content', '')
+            # Truncar contenido de similares a 400 chars para no saturar el prompt
+            content_truncated = content[:400] + "..." if len(content) > 400 else content
             context_text += (
                 f"\n--- Proyecto Existente {i+1} ---\n"
                 f"Título: {proj.get('title', 'Desconocido')}\n"
-                f"Similitud Matemática (ChromaDB): {sim_pct:.1f}%\n"
-                f"Contenido: {proj.get('content', '')}\n"
+                f"Similitud Matemática (Qdrant): {sim_pct:.1f}%\n"
+                f"Fragmento donde se solapa: {content_truncated}\n"
             )
+        
+        logger.info(
+            f"[analyze-proposal] Recibido: proposal_text={len(body.proposal_text)} chars, "
+            f"similar_projects={len(body.similar_projects)}, "
+            f"max_sim_pct={body.max_sim_pct}, risk_level={body.risk_level}, "
+            f"provider={body.provider}"
+        )
 
         groq_system, groq_user = build_groq_analysis_prompt(
             proposal_text=body.proposal_text,
@@ -117,9 +182,23 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
         if body.provider == "groq":
             from app.api.groq_client import analyze_with_groq
             try:
-                logger.info("[analyze-proposal] Intentando usar GroqCloud...")
-                result = await asyncio.to_thread(analyze_with_groq, groq_system, groq_user)
-                return result
+                logger.info(
+                    f"[analyze-proposal] Enviando a Groq: system_prompt={len(groq_system)} chars, "
+                    f"user_prompt={len(groq_user)} chars, model={body.groq_model}"
+                )
+                # Guardar para diagnóstico
+                _last_prompt_debug = {
+                    "provider": "groq",
+                    "model": body.groq_model,
+                    "system_prompt_len": len(groq_system),
+                    "user_prompt_len": len(groq_user),
+                    "system_preview": groq_system[:300],
+                    "user_preview": groq_user[:500],
+                    "timestamp": str(__import__('datetime').datetime.now()),
+                }
+                result = await asyncio.to_thread(analyze_with_groq, groq_system, groq_user, body.groq_model)
+                logger.info(f"[analyze-proposal] Groq respondió exitosamente con modelo: {result.get('actual_model_used', 'desconocido')}")
+                return _enforce_approved_flag(result)
             except Exception as e:
                 logger.warning(f"[analyze-proposal] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
 
@@ -137,10 +216,25 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
         )
 
         try:
+            logger.info(
+                f"[analyze-proposal] Enviando a Ollama: system_prompt={len(ollama_system)} chars, "
+                f"user_prompt={len(ollama_user)} chars"
+            )
+            # Guardar para diagnóstico
+            _last_prompt_debug = {
+                "provider": "ollama",
+                "model": ollama_client.model,
+                "system_prompt_len": len(ollama_system),
+                "user_prompt_len": len(ollama_user),
+                "system_preview": ollama_system[:300],
+                "user_preview": ollama_user[:500],
+                "timestamp": str(__import__('datetime').datetime.now()),
+            }
             raw_response = await ollama_client.generate(
                 prompt=ollama_user,
                 system_prompt=ollama_system
             )
+            logger.info(f"[analyze-proposal] Ollama respondió: {len(raw_response)} chars")
             
             cleaned_response = raw_response.strip()
             if cleaned_response.startswith("```json"):
@@ -149,7 +243,7 @@ async def analyze_proposal(body: AnalyzeProposalRequest):
                 cleaned_response = cleaned_response[:-3]
                 
             result = json.loads(cleaned_response)
-            return result
+            return _enforce_approved_flag(result)
         except json.JSONDecodeError:
             logger.error(f"[analyze-proposal] Ollama no devolvió JSON válido: {raw_response}")
             raise HTTPException(status_code=500, detail="El modelo no devolvió un formato válido.")
@@ -166,13 +260,16 @@ async def start_session(
     x_user_data: Optional[str] = Header(None),
 ):
     
-    quota = quota_client.get_quota(body.user_id)
+    # quota_client.get_quota(body.team_id) could be changed to team-based quota later.
+    # For now, let's assume quota is handled at team level or bypass if needed.
+    # Using team_id for quota registration:
+    quota = quota_client.get_quota(body.team_id)
     if not quota["can_create"]:
         raise HTTPException(
             status_code=402,
             detail={
                 "error": "quota_exceeded",
-                "message": f"Has usado tus {quota['limit']} sesiones gratuitas de análisis IA. Actualiza tu plan para continuar.",
+                "message": f"El equipo ha usado sus {quota['limit']} sesiones gratuitas de análisis IA.",
                 "sessions_used": quota["sessions_used"],
                 "sessions_limit": quota["limit"],
             },
@@ -181,40 +278,64 @@ async def start_session(
     if not ollama_client.check_health():
         raise HTTPException(status_code=503, detail="El motor de IA no está disponible en este momento.")
 
-    approved = body.analysis_result.get("approved", False)
+    actual_analysis = body.analysis_result.get("ollama_analysis", body.analysis_result)
+    
+    approved = actual_analysis.get("approved", False)
     mode = "defense" if approved else "rejection"
 
+    existing_session = session_store.get_by_team_id(body.team_id)
+    if existing_session:
+        ai_opening = ""
+        for m in existing_session.messages:
+            if m["role"] == "assistant":
+                ai_opening = m["content"]
+                break
+        
+        if ai_opening:
+            logger.info(f"[session/start] Reutilizando sesión activa para team {body.team_id}")
+            return StartSessionResponse(
+                session_id=existing_session.session_id,
+                mode=existing_session.mode,
+                ai_opening_message=ai_opening,
+                messages=existing_session.messages,
+                quota=quota,
+            )
+        else:
+            logger.warning(f"[session/start] Sesión {existing_session.session_id} encontrada pero sin historial. Se creará una nueva.")
+            session_store.delete(existing_session.session_id)
+
     session = session_store.create(
-        user_id=body.user_id,
+        team_id=body.team_id,
         mode=mode,
-        analysis_result=body.analysis_result,
+        analysis_result=actual_analysis,
         proposal_summary=body.proposal_summary,
+        team_members=body.team_members,
     )
 
     quota_client.register_session(
-        user_id=body.user_id,
+        user_id=body.team_id,
         session_data={
             "session_id": session.session_id,
             "verdict": "approved" if approved else "rejected",
             "proposal_summary": body.proposal_summary[:500],
-            "analysis_json": body.analysis_result,
+            "analysis_json": actual_analysis,
         },
     )
 
     if mode == "defense":
         opening_prompt = (
-            "El alumno acaba de ver que su proyecto fue pre-aprobado. "
-            "Abre la sesión de defensa presentándote brevemente y lanzando tu primera pregunta difícil "
-            "sobre el punto más débil que identificas en el proyecto. Sé directo y específico. "
+            "El equipo acaba de ver que su proyecto fue pre-aprobado. "
+            "Abre la sesión presentándote estrictamente como la IA 'Corvus Evaluator' (NO inventes nombres humanos para ti) "
+            "y lanza tu primera pregunta difícil sobre el punto más débil que identificas en el proyecto. Sé directo y específico. "
             "Recuerda incluir al final '[SCORE: 0/100]'."
         )
     else:
-        score = body.analysis_result.get("innovation_index", {}).get("score", 0)
-        risk = body.analysis_result.get("semantic_collision_risk", {}).get("alert_type", "")
+        score = actual_analysis.get("innovation_index", {}).get("score", 0)
+        risk = actual_analysis.get("semantic_collision_risk", {}).get("alert_type", "")
         opening_prompt = (
-            f"El alumno acaba de recibir el rechazo de su propuesta (score: {score}%, riesgo: {risk}). "
-            "Abre la sesión presentándote como asesor constructivo, explica brevemente las razones principales del rechazo "
-            "y pregúntale qué parte le gustaría entender mejor primero."
+            f"El equipo acaba de recibir el rechazo de su propuesta (score: {score}%, riesgo: {risk}). "
+            "Abre la sesión presentándote estrictamente como la IA 'Corvus Advisor' (NO inventes nombres humanos para ti), "
+            "explica brevemente las razones principales del rechazo y pregúntales qué parte les gustaría entender mejor primero."
         )
 
     messages = session.to_ollama_messages()
@@ -222,11 +343,12 @@ async def start_session(
 
     async def _do_start_chat():
         try:
-            ai_opening = await ollama_client.chat(messages, temperature=0.6)
+            ai_opening = await asyncio.to_thread(chat_with_groq, messages, 0.6)
             session.add_message("assistant", ai_opening)
             return ai_opening
         except Exception as e:
             logger.error(f"[session/start] Error generando apertura: {e}")
+            session_store.delete(session.session_id)
             raise HTTPException(status_code=500, detail="Error generando el mensaje inicial de la IA.")
 
     ai_opening = await llm_queue.enqueue(1, _do_start_chat())
@@ -235,6 +357,7 @@ async def start_session(
         session_id=session.session_id,
         mode=mode,
         ai_opening_message=ai_opening,
+        messages=session.messages,
         quota=quota,
     )
 
@@ -251,13 +374,15 @@ async def session_message(body: SessionMessageRequest):
     if not ollama_client.check_health():
         raise HTTPException(status_code=503, detail="El motor de IA no está disponible en este momento.")
 
-    session.add_message("user", body.user_message)
+    session.add_message("user", body.user_message, body.student_name)
 
-    full_messages = session.to_ollama_messages()
+    # Use reminder-injected messages to prevent context drift / name hallucination
+    full_messages = session.to_messages_with_reminder()
 
     async def _do_chat():
         try:
-            ai_response = await ollama_client.chat(full_messages, temperature=0.6)
+            ai_response = await asyncio.to_thread(chat_with_groq, full_messages, 0.7, body.groq_model)
+            
             session.add_message("assistant", ai_response)
             return ai_response
         except Exception as e:
@@ -288,13 +413,25 @@ async def generate_name(body: GenerateNameRequest):
     async def _do_generate():
         raw_response = None
 
-        # Intentar con el proveedor configurado
-        if body.provider == "groq":
+        # Intentar con Gemini primero para nombres (gratis, alto rate limit, menos repeticiones)
+        try:
+            from app.api.gemini_client import generate_text_with_gemini
+            from app.config import settings
+            logger.info("[generate-name] Intentando con Gemini...")
+            gemini_key = getattr(settings, "GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+            if not gemini_key:
+                 raise Exception("GEMINI_API_KEY no está configurada")
+            raw_response = await generate_text_with_gemini(system_prompt, body.prompt, api_key=gemini_key)
+        except Exception as e:
+            logger.warning(f"[generate-name] Gemini falló ({e}). Failover a Groq/Ollama...")
+
+        # Si Gemini falló, intentar con el proveedor configurado
+        if raw_response is None and body.provider == "groq":
             try:
                 from app.api.groq_client import generate_text_with_groq
-                logger.info("[generate-name] Intentando con Groq...")
+                logger.info(f"[generate-name] Intentando con Groq usando {body.groq_model}...")
                 raw_response = await asyncio.to_thread(
-                    generate_text_with_groq, system_prompt, body.prompt
+                    generate_text_with_groq, system_prompt, body.prompt, body.groq_model
                 )
             except Exception as e:
                 logger.warning(f"[generate-name] Groq falló ({e}). Failover a Ollama...")
@@ -339,9 +476,9 @@ async def generate_rag_summary(body: GenerateRAGSummaryRequest):
         if body.provider == "groq":
             try:
                 from app.api.groq_client import generate_text_with_groq
-                logger.info("[generate-rag-summary] Intentando con Groq...")
+                logger.info(f"[generate-rag-summary] Intentando con Groq usando {body.groq_model}...")
                 raw_response = await asyncio.to_thread(
-                    generate_text_with_groq, system_prompt, user_prompt
+                    generate_text_with_groq, system_prompt, user_prompt, body.groq_model
                 )
             except Exception as e:
                 logger.warning(f"[generate-rag-summary] Groq falló ({e}). Failover a Ollama...")
@@ -406,9 +543,9 @@ async def analyze_homework(body: AnalyzeHomeworkRequest):
         if body.provider == "groq":
             try:
                 from app.api.groq_client import analyze_with_groq
-                logger.info("[analyze-homework] Intentando con Groq...")
+                logger.info(f"[analyze-homework] Intentando con Groq usando {body.groq_model}...")
                 raw_response = await asyncio.to_thread(
-                    analyze_with_groq, system_prompt, user_prompt
+                    analyze_with_groq, system_prompt, user_prompt, body.groq_model
                 )
             except Exception as e:
                 logger.warning(f"[analyze-homework] Groq falló ({e}). Failover a Ollama...")
@@ -515,16 +652,16 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
         if body.provider == "groq":
             try:
                 from app.api.groq_client import generate_text_with_groq
-                logger.info(f"[generate-career-skills] Intentando con Groq para {body.career_name}...")
+                logger.info(f"[generate-career-skills] Intentando con Groq para {body.career_name} usando {body.groq_model}...")
                 raw_response = await asyncio.to_thread(
-                    generate_text_with_groq, system_prompt, user_prompt
+                    generate_text_with_groq, system_prompt, user_prompt, body.groq_model
                 )
             except Exception as e:
                 logger.warning(f"[generate-career-skills] Groq falló ({e}). Failover a Ollama...")
 
         if raw_response is None:
             if not ollama_client.check_health():
-                return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
+                return {"skills": []}
             try:
                 raw_response = await ollama_client.generate(
                     prompt=user_prompt,
@@ -532,7 +669,7 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
                 )
             except Exception as e:
                 logger.error(f"[generate-career-skills] Error con Ollama: {e}")
-                return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
+                return {"skills": []}
 
         try:
             cleaned = raw_response.strip()
@@ -550,7 +687,7 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
                 processed = [{"name": item.get("name", "Unknown"), "weight": item.get("weight", 5)} if isinstance(item, dict) else {"name": str(item), "weight": 5} for item in data["skills"]]
                 return {"skills": processed}
             else:
-                return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
+                return {"skills": []}
         except Exception as e:
             logger.error(f"[generate-career-skills] Parse error: {e}")
             import re
@@ -562,7 +699,7 @@ async def generate_career_skills(body: GenerateCareerSkillsRequest):
                     return {"skills": processed}
                 except:
                     pass
-            return {"skills": [{"name": "Resolución de problemas", "weight": 8}, {"name": "Trabajo en equipo", "weight": 7}]}
+            return {"skills": []}
 
     return await llm_queue.enqueue(3, _do_generate())
 
@@ -610,7 +747,7 @@ async def validate_idea_quick(body: ValidateIdeaQuickRequest):
             try:
                 # Groq client is synchronous, so we use asyncio.to_thread if we want, or just call it directly.
                 # Actually generate_text_with_groq is synchronous, let's wrap it in to_thread.
-                response = await asyncio.to_thread(generate_text_with_groq, system_prompt, user_prompt)
+                response = await asyncio.to_thread(generate_text_with_groq, system_prompt, user_prompt, body.groq_model)
                 return {"result": response}
             except Exception as e:
                 logger.error(f"[validate-idea-quick] Error con Groq: {e}")
@@ -626,3 +763,21 @@ async def validate_idea_quick(body: ValidateIdeaQuickRequest):
             return {"result": "Error al evaluar la idea con Ollama."}
 
     return await llm_queue.enqueue(1, _do_generate())
+
+@router.get("/session/{session_id}/messages")
+async def get_session_messages(session_id: str):
+    existing_session = session_store.get(session_id)
+    if not existing_session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada.")
+    return {"messages": existing_session.messages}
+
+@router.get("/debug-last-prompt")
+async def debug_last_prompt():
+    """
+    Endpoint de diagnóstico: devuelve el último prompt enviado a Groq/Ollama
+    con tamaños y previews. No ejecuta nada, solo inspecciona.
+    """
+    return {
+        "status": "ok",
+        "last_prompt": _last_prompt_debug if _last_prompt_debug else {"message": "No se ha enviado ningún prompt todavía."}
+    }

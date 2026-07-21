@@ -4,6 +4,9 @@ from typing import Callable, Any, Coroutine
 
 logger = logging.getLogger(__name__)
 
+# Timeout máximo por tarea en segundos (3 minutos)
+TASK_TIMEOUT = 180
+
 class LLMQueue:
     def __init__(self):
         self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
@@ -36,9 +39,13 @@ class LLMQueue:
                 logger.info(f"Procesando tarea de cola con prioridad: {priority}")
                 
                 try:
-                    result = await coro
+                    result = await asyncio.wait_for(coro, timeout=TASK_TIMEOUT)
                     if not future.done():
                         future.set_result(result)
+                except asyncio.TimeoutError:
+                    logger.error(f"Timeout procesando tarea en la cola LLM (>{TASK_TIMEOUT}s). Abortando.")
+                    if not future.done():
+                        future.set_exception(TimeoutError(f"La tarea excedió el tiempo máximo de {TASK_TIMEOUT}s"))
                 except Exception as e:
                     logger.error(f"Error procesando tarea en la cola LLM: {e}")
                     if not future.done():
