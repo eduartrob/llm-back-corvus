@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from groq import Groq
+from groq import Groq, RateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -10,46 +10,96 @@ from app.config import settings
 # Configuración del cliente Groq
 client = Groq(api_key=settings.GROQ_API_KEY)
 
-def analyze_with_groq(system_prompt: str, user_prompt: str) -> dict:
+FALLBACK_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant"
+]
+
+def list_groq_models() -> list[dict]:
     try:
-        logger.info("[GroqClient] Iniciando análisis con llama-3.3-70b-versatile...")
-        # Timeout de 2 segundos según lo solicitado (Groq es rápido, 2s para failover rápido)
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }
-            ],
-            model="llama-3.3-70b-versatile",
-            response_format={"type": "json_object"},
-            timeout=30.0
-        )
-
-        response_text = chat_completion.choices[0].message.content
-        return json.loads(response_text)
+        models = client.models.list()
+        # models.data es una lista de objetos Model
+        return [{"id": m.id, "owned_by": m.owned_by} for m in models.data if "llama" in m.id.lower() or "mixtral" in m.id.lower()]
     except Exception as e:
-        logger.error(f"[GroqClient] Error al conectar con Groq: {e}")
-        raise e
+        logger.error(f"[GroqClient] Error listando modelos: {e}")
+        return [{"id": m, "owned_by": "fallback"} for m in FALLBACK_MODELS]
 
-def generate_text_with_groq(system_prompt: str, user_prompt: str) -> str:
+def analyze_with_groq(system_prompt: str, user_prompt: str, groq_model: str = "llama-3.1-8b-instant") -> dict:
+    models_to_try = [groq_model] + [m for m in FALLBACK_MODELS if m != groq_model]
+    
+    for i, model in enumerate(models_to_try):
+        try:
+            logger.info(f"[GroqClient] Iniciando análisis con {model}...")
+            system_prompt_json = system_prompt + "\n\nCRITICAL INSTRUCTION: You MUST format your response as a valid JSON object."
+            chat_completion = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt_json},
+                    {"role": "user", "content": user_prompt}
+                ],
+                model=model,
+                response_format={"type": "json_object"},
+                timeout=120,
+                max_tokens=2000
+            )
+            response_text = chat_completion.choices[0].message.content
+            parsed = json.loads(response_text)
+            parsed["actual_model_used"] = model
+            return parsed
+        except RateLimitError as e:
+            logger.warning(f"[GroqClient] RateLimitError con {model}: {e}. Intentando fallback...")
+            if i == len(models_to_try) - 1:
+                raise e # Ya no hay más fallbacks
+            continue
+        except Exception as e:
+            logger.error(f"[GroqClient] Error al conectar con Groq ({model}): {e}")
+            raise e
+
+def generate_text_with_groq(system_prompt: str, user_prompt: str, groq_model: str = "llama-3.1-8b-instant") -> str:
     """Llama a Groq y devuelve texto plano (sin JSON). Útil para generar nombres cortos."""
-    try:
-        logger.info("[GroqClient] Generando texto con llama-3.3-70b-versatile...")
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            model="llama-3.3-70b-versatile",
-            timeout=30.0
-        )
-        return chat_completion.choices[0].message.content.strip()
-    except Exception as e:
-        logger.error(f"[GroqClient] Error generando texto: {e}")
-        raise e
+    models_to_try = [groq_model] + [m for m in FALLBACK_MODELS if m != groq_model]
+    
+    for i, model in enumerate(models_to_try):
+        try:
+            logger.info(f"[GroqClient] Generando texto con {model}...")
+            chat_completion = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                model=model,
+                timeout=120,
+                max_tokens=2000
+            )
+            text = chat_completion.choices[0].message.content.strip()
+            # En texto plano, no podemos inyectar un JSON, pero podemos usar un delimitador o simplemente confiar en analyze_with_groq
+            return text
+        except RateLimitError as e:
+            logger.warning(f"[GroqClient] RateLimitError con {model}: {e}. Intentando fallback...")
+            if i == len(models_to_try) - 1:
+                raise e
+            continue
+        except Exception as e:
+            logger.error(f"[GroqClient] Error generando texto ({model}): {e}")
+            raise e
 
+def chat_with_groq(messages: list[dict], temperature: float = 0.7, groq_model: str = "llama-3.1-8b-instant") -> str:
+    models_to_try = [groq_model] + [m for m in FALLBACK_MODELS if m != groq_model]
+    for i, model in enumerate(models_to_try):
+        try:
+            logger.info(f"[GroqClient] Iniciando chat con {model}...")
+            chat_completion = client.chat.completions.create(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                timeout=120,
+                max_tokens=2000
+            )
+            return chat_completion.choices[0].message.content
+        except RateLimitError as e:
+            logger.warning(f"[GroqClient] RateLimitError con {model}: {e}. Intentando fallback...")
+            if i == len(models_to_try) - 1:
+                raise e
+            continue
+        except Exception as e:
+            logger.error(f"[GroqClient] Error en chat ({model}): {e}")
+            raise e
