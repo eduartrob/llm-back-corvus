@@ -42,7 +42,9 @@ from app.core.prompts import (
     build_blue_ocean_user_prompt,
     build_groq_analysis_prompt,
     build_ollama_analysis_prompt,
-    build_rag_summary_prompt
+    build_rag_summary_prompt,
+    GROQ_8B_SUMMARY_SYSTEM_PROMPT,
+    build_groq_8b_summary_prompt
 )
 
 def _enforce_approved_flag(result: dict) -> dict:
@@ -79,35 +81,60 @@ async def get_groq_models():
 @router.post("/analyze-blue-ocean")
 async def analyze_blue_ocean(body: BlueOceanRequest):
     async def _do_analysis():
-        system_prompt = BLUE_OCEAN_SYSTEM_PROMPT
-        user_prompt = build_blue_ocean_user_prompt(body.title, body.description, body.category)
+        from app.api.groq_client import analyze_with_groq
+        from app.api.gemini_client import generate_gemini_json
         
-        # Intentar con Groq primero
+        # PASO 1: Groq 8B para resumir y limpiar el texto
+        logger.info("[analyze-blue-ocean] PASO 1: Resumiendo con Groq 8B...")
         try:
-            from app.api.groq_client import analyze_with_groq
-            logger.info("[analyze-blue-ocean] Intentando usar GroqCloud con Llama 70B...")
-            # analyze_with_groq es síncrona, ejecutamos en hilo
-            result = await asyncio.to_thread(analyze_with_groq, system_prompt, user_prompt, "llama-3.3-70b-versatile")
-            return result
-        except Exception as e:
-            logger.warning(f"[analyze-blue-ocean] Falló GroqCloud ({e}). Haciendo failover a Ollama local...")
+            summary_system = GROQ_8B_SUMMARY_SYSTEM_PROMPT
+            summary_user = build_groq_8b_summary_prompt(body.description)
             
-        # Fallback a Ollama
-        if not ollama_client.check_health():
-            raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+            raw_summary = await asyncio.to_thread(
+                analyze_with_groq, 
+                summary_system, 
+                summary_user, 
+                "llama-3.1-8b-instant"
+            )
+            # Extraer el texto de la respuesta (puede venir en JSON si analyze_with_groq fuerza JSON, pero asumimos texto si falla)
+            if isinstance(raw_summary, dict):
+                summary_text = json.dumps(raw_summary)
+            else:
+                summary_text = str(raw_summary)
+        except Exception as e:
+            logger.warning(f"[analyze-blue-ocean] Falló el resumen con Groq 8B ({e}). Usando texto original (truncado).")
+            summary_text = body.description[:2000]
 
+        # PASO 2: Gemini para generar el JSON estructurado del Océano Azul
+        logger.info("[analyze-blue-ocean] PASO 2: Generando análisis con Gemini...")
+        system_prompt = BLUE_OCEAN_SYSTEM_PROMPT
+        user_prompt = build_blue_ocean_user_prompt(body.title, summary_text, body.category)
+        
         try:
-            raw_response = await ollama_client.generate(prompt=user_prompt, system_prompt=system_prompt)
-            
-            cleaned_response = raw_response.strip()
-            if cleaned_response.startswith("```json"):
-                cleaned_response = cleaned_response[7:]
-            if cleaned_response.endswith("```"):
-                cleaned_response = cleaned_response[:-3]
-                
-            return json.loads(cleaned_response)
+            result = generate_gemini_json(system_prompt, user_prompt)
+            if result:
+                return result
+            else:
+                raise Exception("Gemini retornó un resultado nulo")
         except Exception as e:
-            logger.error(f"[analyze-blue-ocean] Error con Ollama: {e}")
+            logger.warning(f"[analyze-blue-ocean] Falló Gemini ({e}). Haciendo failover a Ollama local...")
+            
+            # Fallback a Ollama si falla Gemini
+            if not ollama_client.check_health():
+                raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
+
+            try:
+                raw_response = await ollama_client.generate(prompt=user_prompt, system_prompt=system_prompt)
+                
+                cleaned_response = raw_response.strip()
+                if cleaned_response.startswith("```json"):
+                    cleaned_response = cleaned_response[7:]
+                if cleaned_response.endswith("```"):
+                    cleaned_response = cleaned_response[:-3]
+                    
+                return json.loads(cleaned_response)
+            except Exception as oe:
+                logger.error(f"[analyze-blue-ocean] Error con Ollama: {oe}")
             raise HTTPException(status_code=503, detail="El motor de IA (Ollama) falló al procesar la solicitud.")
 
     # Prioridad baja (10) para tareas de fondo

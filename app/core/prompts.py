@@ -45,12 +45,13 @@ BLUE_OCEAN_SYSTEM_PROMPT = "Eres un experto analista de datos e investigador aca
 def build_blue_ocean_user_prompt(title: str, description: str, category: str) -> str:
     return f"""Analiza este nicho de océano azul (baja colisión semántica).
 Título: {title}
-Descripción: {description}
+Descripción (Resumen procesado): {description}
 Categoría: {category}
 
-Genera un JSON con tres sugerencias de innovación, un hallazgo principal, y métricas.
+Genera un JSON con tres sugerencias de innovación, un hallazgo principal, y métricas. Extrae un título oficial atractivo.
 Estructura JSON estricta (no uses backticks):
 {{
+    "titulo_propuesta": "string",
     "hallazgo_principal": "string",
     "sugerencias": [
         {{"titulo": "string", "descripcion": "string", "tipo": "string"}}
@@ -62,6 +63,14 @@ Estructura JSON estricta (no uses backticks):
     }}
 }}"""
 
+GROQ_8B_SUMMARY_SYSTEM_PROMPT = "Eres un asistente académico que extrae y resume información."
+
+def build_groq_8b_summary_prompt(text: str) -> str:
+    return f"""Lee el siguiente texto de un documento de investigación académica y extrae un resumen limpio y detallado de sus aportes principales (máx 500 palabras).
+Texto original:
+{text}
+
+Proporciona únicamente el resumen detallado en español. No agregues saludos ni comentarios extra."""
 
 def build_groq_analysis_prompt(proposal_text: str, context_text: str, project_name: str, top_project_name: str, max_sim_pct: float, risk_level: str) -> tuple[str, str]:
     system_prompt = f"""Eres un estricto evaluador académico de proyectos universitarios dentro del sistema AcadeRAG.
