@@ -105,13 +105,26 @@ async def analyze_blue_ocean(body: BlueOceanRequest):
             logger.warning(f"[analyze-blue-ocean] Falló el resumen con Groq 8B ({e}). Usando texto original (truncado).")
             summary_text = body.description[:2000]
 
-        # PASO 2: Gemini para generar el JSON estructurado del Océano Azul
-        logger.info("[analyze-blue-ocean] PASO 2: Generando análisis con Gemini...")
+        # PASO 2: Generar análisis estructurado del Océano Azul (OpenRouter -> Gemini -> Ollama)
+        logger.info("[analyze-blue-ocean] PASO 2: Generando análisis con OpenRouter / Gemini...")
         system_prompt = BLUE_OCEAN_SYSTEM_PROMPT
         user_prompt = build_blue_ocean_user_prompt(body.title, summary_text, body.category)
         
+        from app.config import settings
+
+        # Intento 1: OpenRouter (modelos gratuitos de alta capacidad como Gemini 2.0 Flash / Llama 3.3 70B)
+        if settings.OPENROUTER_API_KEY and settings.OPENROUTER_API_KEY.strip():
+            try:
+                from app.api.openrouter_client import generate_openrouter_json
+                logger.info("[analyze-blue-ocean] Intentando análisis con OpenRouter...")
+                result = await generate_openrouter_json(system_prompt, user_prompt, settings.OPENROUTER_API_KEY)
+                if result:
+                    return result
+            except Exception as ore:
+                logger.warning(f"[analyze-blue-ocean] OpenRouter falló: {ore}. Continuando con Gemini directo...")
+
+        # Intento 2: Gemini Directo
         try:
-            from app.config import settings
             result = await generate_gemini_json(system_prompt, user_prompt, settings.GEMINI_API_KEY)
             if result:
                 return result
@@ -120,7 +133,7 @@ async def analyze_blue_ocean(body: BlueOceanRequest):
         except Exception as e:
             logger.warning(f"[analyze-blue-ocean] Falló Gemini ({e}). Haciendo failover a Ollama local...")
             
-            # Fallback a Ollama si falla Gemini
+            # Intento 3: Fallback a Ollama si falla Gemini
             if not ollama_client.check_health():
                 raise HTTPException(status_code=503, detail="El motor de IA (Ollama) no está disponible.")
 
