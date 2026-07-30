@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
+from app.api.live_ws import router as live_ws_router
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -32,3 +33,4 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api/v1/llm")
+app.include_router(live_ws_router, prefix="/api/v1/llm")
